@@ -1,0 +1,76 @@
+# Docker стек my-budget: PostgreSQL (db) + Express API (api) + фронтенд с
+# реверс-прокси /api/ (web). Секреты лежат в .env рядом с этим файлом
+# (он в .gitignore) — в образы и в git не попадают никогда.
+#
+# Команды на сервере (/opt/mybudget/server):
+#   docker compose up -d --build     # собрать и поднять
+#   docker compose ps                # состояние сервисов
+#   docker compose logs -f api       # логи бэкенда
+#   docker compose exec db psql -U mybudget -d mybudget   # консоль БД
+
+name: mybudget
+
+services:
+  # ── База данных ────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # ?-синтаксис: без значений в .env compose откажется стартовать
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB не задан в server/.env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER не задан в server/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в server/.env}
+    # Параметры под сервер 2 vCPU / 2 ГБ: 256 МБ общей памяти кэша,
+    # 50 соединений (приложение ходит пулом max=5 — с огромным запасом)
+    command: postgres -c shared_buffers=256MB -c max_connections=50 -c effective_cache_size=768MB
+    volumes:
+      # Данные живут в именованном volume и переживают пересоздание контейнера
+      - pgdata:/var/lib/postgresql/data
+      # schema.sql применяется автоматически при ПЕРВОМ старте (пустой volume).
+      # Последующие правки схемы — руками через psql (как SQL-редактор Supabase)
+      # и обновлением db/schema.sql для будущих свежих установок.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      # api стартует только после реальной готовности postgres, а не контейнера
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Портов на хост не публикуем: к БД есть доступ только из сети mybudget
+
+  # ── Express API (репозиторий server) ───────────────────────────────────────
+  api:
+    build: .
+    restart: unless-stopped
+    # DATABASE_URL/JWT_SECRET/PORT из того же .env приходят процессу env'рами
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    # Доступен соседям по сети (web проксирует на api:5001), наружу не торчит
+    expose:
+      - "5001"
+
+  # ── Фронтенд (репозиторий client, клон рядом) ──────────────────────────────
+  web:
+    # Контекст — ../client: nginx-образ со собранной статикой,
+    # /api/ внутри него проксируется на api:5001 (см. client/docker/nginx.conf)
+    build:
+      context: ../client
+      args:
+        # Публичные anon-ключи Supabase: пока клиент не переписан на этот API
+        # (этап 3), бандл в контейнере должен уметь ходить в прежний бэкенд.
+        # Пустые значения = нерабочий фронт, но /api продолжает обслуживаться.
+        SUPABASE_URL: ${SUPABASE_URL:-}
+        SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    restart: unless-stopped
+    ports:
+      # Единственная точка входа снаружи Docker: только localhost,
+      # TLS терминирует хостовый nginx (certbot) перед 127.0.0.1:8080
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

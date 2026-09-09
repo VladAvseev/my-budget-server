@@ -1,0 +1,12 @@
+# Файлы, не попадающие в контекст сборки api-образа
+node_modules
+dist
+.env
+.git
+.gitignore
+.gitlab-ci.yml
+.prettierrc
+.prettierignore
+eslint.config.js
+nodemon.json
+AGENTS.md
