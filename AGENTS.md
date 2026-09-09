@@ -16,8 +16,13 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
   `docker compose exec db psql -U mybudget -d mybudget` и коммитить в этот файл.
 - CI (`.gitlab-ci.yml`): build+lint+typecheck, job `deploy-api` (активен после
   заведения `DEPLOY_SSH_KEY` в Variables), зеркало в GitHub.
-- Миграция данных из Supabase: `db/migrate-from-supabase.mjs` (запуск на
-  сервере), отчёт о непрошеных паролях печатает в консоль.
+- Миграция данных из Supabase: `db/migrate-from-supabase.mjs` читает источник
+  через его REST/GoTrue API (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
+  secret-ключ обязателен — RLS с анонимным ключом вернул бы пустые таблицы);
+  хэши паролей через API не доступны, поэтому пользователям выдаются
+  временные пароли (печатаются в отчёте `--yes`). Запуск:
+  `docker compose run --rm --no-deps -e SUPABASE_URL=... -e SUPABASE_SERVICE_ROLE_KEY=... api node db/migrate-from-supabase.mjs --dry-run`,
+  затем с `--yes`.
 
 ## Стек
 
