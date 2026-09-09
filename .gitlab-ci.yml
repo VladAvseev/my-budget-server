@@ -1,0 +1,52 @@
+# Пайплайн сервера my-budget: npm ci → lint → typecheck → build,
+# затем зеркальное копирование репозитория в GitHub.
+# Деплоя нет: артефакт dist/ хранится 1 час только для истории сборок.
+
+stages:
+  - build
+  - mirror
+
+variables:
+  # Тот же образ Node, что в клиентском пайплайне
+  NODE_IMAGE: node:20-alpine
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Этап 1: проверка и сборка Express-бэкенда
+# .env в CI не создаём (в отличие от клиента): tsc/eslint не читают dotenv,
+# а рантайм-конфигурация (DATABASE_URL, JWT_SECRET) серверу при сборке не нужен.
+# ─────────────────────────────────────────────────────────────────────────────
+build:
+  stage: build
+  image: $NODE_IMAGE
+  before_script:
+    - npm ci
+  script:
+    - npm run lint
+    - npm run typecheck
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 hour
+  only:
+    - develop
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Этап 2: зеркало в GitHub (по образцу mirror-to-github клиента)
+# Приватный SSH-ключ берётся из переменной GitLab SSH_PRIVATE_KEY_MIRROR
+# (Settings → CI/CD → Variables, без Mask/Protect). Публичная часть этого ключа
+# добавлена в Deploy keys репозитория VladAvseev/my-budget-server с правом
+# записи (Allow write access) — иначе github отклонит push.
+# ─────────────────────────────────────────────────────────────────────────────
+mirror-to-github:
+  stage: mirror
+  only:
+    - develop
+  before_script:
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY_MIRROR" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan github.com >> ~/.ssh/known_hosts
+    - git remote add github git@github.com:VladAvseev/my-budget-server.git
+  script:
+    - git push github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"
