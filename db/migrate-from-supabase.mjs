@@ -94,12 +94,14 @@ async function restGet(url) {
   return res.json();
 }
 
-/** Одна таблица PostgREST целиком, страницами по PAGE строк (сортировка по id стабильна). */
-async function restAll(table) {
+/** Одна таблица PostgREST целиком, страницами по PAGE строк.
+ *  Порядок — по первичному ключу (у большинства это id, у profiles — user_id),
+ *  иначе постраничная выборка нестабильна. */
+async function restAll(table, orderColumn = 'id') {
   const out = [];
   for (let from = 0; ; from += PAGE) {
     const rows = await restGet(
-      `${SRC}/rest/v1/${table}?select=*&order=id.asc&offset=${from}&limit=${PAGE}`,
+      `${SRC}/rest/v1/${table}?select=*&order=${orderColumn}.asc&offset=${from}&limit=${PAGE}`,
     );
     out.push(...rows);
     if (rows.length < PAGE) break;
@@ -173,7 +175,7 @@ log(`Цель: ${DST_URL.replace(/:[^:@/]*@/, ':***@')}`);
 const [authUsersRaw, profiles, srcReports, srcCategories, srcOperations, srcAccumulations, srcGoals, srcLimits] =
   await Promise.all([
     adminUsers(),
-    restAll('profiles'),
+    restAll('profiles', 'user_id'),
     restAll('reports'),
     restAll('categories'),
     restAll('operations'),
