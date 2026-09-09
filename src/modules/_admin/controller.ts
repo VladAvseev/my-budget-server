@@ -46,6 +46,16 @@ export class AdminController {
       next(error);
     }
   }
+
+  /** DELETE /admin/users/:id → 204, 400 (self-delete), 404 (нет такого id). */
+  async removeUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      await adminService.removeUser(req.params.id, req.user!.id);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();

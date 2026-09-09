@@ -1,3 +1,5 @@
+import { AppError } from '@/shared/appError.js';
+import { requireUuid } from '@/shared/validate.js';
 import { adminRepository } from './repository.js';
 import type { AdminDashboardStats, AdminDynamicsRow, AdminUserRow, DatabaseSize } from './types.js';
 
@@ -25,6 +27,23 @@ export class AdminService {
 
   async listUsers(): Promise<AdminUserRow[]> {
     return adminRepository.listUsers();
+  }
+
+  /**
+   * DELETE /admin/users/:id — безвозвратное удаление аккаунта со всей
+   * статистикой (каскад в db/schema.sql снимает reports/operations/
+   * categories/accumulations/goals/category_limits/refresh_tokens).
+   * Защита: админ не может удалить собственный аккаунт (400).
+   */
+  async removeUser(id: unknown, currentAdminId: string): Promise<void> {
+    const userId = requireUuid(id);
+    if (userId === currentAdminId) {
+      throw new AppError('Нельзя удалить собственный аккаунт', 400);
+    }
+    const removed = await adminRepository.removeUser(userId);
+    if (!removed) {
+      throw new AppError('Пользователь не найден', 404);
+    }
   }
 }
 

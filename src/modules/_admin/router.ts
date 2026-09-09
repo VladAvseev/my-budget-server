@@ -28,3 +28,9 @@ adminRouter.get('/dashboard/database-size', adminController.getDatabaseSize);
 // отчётов/операций/категорий/накоплений/целей). Таблица страницы
 // «Пользователи» админ-панели.
 adminRouter.get('/users', adminController.listUsers);
+
+// DELETE /admin/users/:id — безвозвратное удаление аккаунта со всей
+// статистикой (on delete cascade в db/schema.sql снимает связанные строки;
+// refresh_tokens пользователя отзываются тем же каскадом).
+// Сервис не позволяет удалить собственный аккаунт (400).
+adminRouter.delete('/users/:id', adminController.removeUser);
