@@ -78,7 +78,7 @@ export class OperationsService {
       OPERATION_TYPES,
       'Некорректный тип операции',
     );
-    const amount = requireAmount(body.amount);
+    const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
     const description = optionalStringOrNull(body.description, 'Некорректное описание');
     const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
     const categoryId = await this.resolveCategoryId(body.categoryId, userId);
@@ -109,7 +109,7 @@ export class OperationsService {
     } = {};
 
     if (body.amount !== undefined) {
-      input.amount = requireAmount(body.amount);
+      input.amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
     }
     if (body.categoryId !== undefined) {
       input.categoryId = await this.resolveCategoryId(body.categoryId, userId);

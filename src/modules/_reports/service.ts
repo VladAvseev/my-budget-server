@@ -226,7 +226,7 @@ export class ReportsService {
     body: Record<string, unknown>,
   ): Promise<OperationDto> {
     const reportId = requireUuid(id);
-    const amount = requireAmount(body.amount);
+    const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
     const description = optionalStringOrNull(body.description, 'Некорректное описание');
 
     const report = await reportsRepository.getById(reportId, userId);
