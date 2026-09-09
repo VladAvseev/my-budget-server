@@ -1,9 +1,9 @@
 # Пайплайн сервера my-budget: npm ci → lint → typecheck → build,
-# затем зеркальное копирование репозитория в GitHub.
-# Деплоя нет: артефакт dist/ хранится 1 час только для истории сборок.
+# деплой docker-образа api на боевой сервер, зеркало репозитория в GitHub.
 
 stages:
   - build
+  - deploy
   - mirror
 
 variables:
@@ -32,7 +32,39 @@ build:
     - develop
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Этап 2: зеркало в GitHub (по образцу mirror-to-github клиента)
+# Этап 2: деплой api на сервер (Reg.ru, docker compose)
+# Джоба существует только когда в Variables заведён DEPLOY_SSH_KEY —
+# до этого пайплайн остаётся прежним (сборка+зеркало).
+# Ключ DEPLOY_SSH_KEY — приватная часть gitlab_deploy с сервера
+# (root@server: /root/.ssh/gitlab_deploy), публичная — в authorized_keys.
+# На сервере CI делает hard-reset клона на origin/develop и пересобирает
+# ТОЛЬКО сервис api: база и web при этом не трогаются.
+# DEPLOY_HOST/DEPLOY_USER — обычные (не Mask) переменные того же проекта.
+# ─────────────────────────────────────────────────────────────────────────────
+deploy-api:
+  stage: deploy
+  image: alpine:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" && $DEPLOY_SSH_KEY'
+  timeout: 15m
+  before_script:
+    - apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    # tr -d '\r' — страховка от CRLF при вставке ключа в веб-форму GitLab
+    - echo "$DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - >
+      ssh "$DEPLOY_USER@$DEPLOY_HOST"
+      "cd /opt/mybudget/server
+      && git fetch origin develop
+      && git checkout develop
+      && git reset --hard origin/develop
+      && docker compose up -d --build api"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Этап 3: зеркало в GitHub (по образцу mirror-to-github клиента)
 # Приватный SSH-ключ берётся из переменной GitLab SSH_PRIVATE_KEY_MIRROR
 # (Settings → CI/CD → Variables, без Mask/Protect). Публичная часть этого ключа
 # добавлена в Deploy keys репозитория VladAvseev/my-budget-server с правом
