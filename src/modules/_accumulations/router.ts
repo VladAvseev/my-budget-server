@@ -1,7 +1,11 @@
+import { authenticate } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { accumulationsController } from './controller.js';
 
 export const accumulationsRouter = Router();
+
+// Все маршруты требуют Bearer access-токен: замена RLS Supabase.
+accumulationsRouter.use(authenticate);
 
 // GET /accumulations — RPC get_accumulations (хук useAccumulations): список
 // накоплений пользователя (новые сверху). Страница «Накопления»

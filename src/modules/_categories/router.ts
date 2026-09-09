@@ -1,7 +1,12 @@
+import { authenticate } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { categoriesController } from './controller.js';
 
 export const categoriesRouter = Router();
+
+// Все маршруты требуют Bearer access-токен: замена RLS-политик Supabase,
+// которые в RPC обеспечивали доступ строго к своим категориям.
+categoriesRouter.use(authenticate);
 
 // GET /categories?type={income|expense|savings} — RPC get_categories (хуки
 // useCategories/useOverviewCategories): категории текущего пользователя,

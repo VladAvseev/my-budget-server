@@ -1,7 +1,12 @@
+import { authenticate } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { reportsController } from './controller.js';
 
 export const reportsRouter = Router();
+
+// Все маршруты требуют Bearer access-токен: замена RLS Supabase,
+// ограничивавшего отчёты рамками пользователя.
+reportsRouter.use(authenticate);
 
 // GET /reports — RPC get_reports (хуки useReports): список отчётов текущего
 // пользователя. Страница «Отчёты» (ReportsList), главная (LastReportCard,
@@ -38,13 +43,15 @@ reportsRouter.get('/:id/summary', reportsController.getSummary);
 reportsRouter.get('/:id/category-limits', reportsController.getCategoryLimits);
 
 // PUT /reports/:id/category-limits — RPC set_category_limits (хук
-// useSetCategoryLimits): полная замена списка лимитов (удаление + вставка).
-// Категория лимита должна принадлежать тому же пользователю (проверяется в БД).
+// useSetCategoryLimits): полная замена списка лимитов (удаление + вставка
+// в одной транзакции). Категория лимита должна принадлежать тому же
+// пользователю (раньше — RLS, теперь — проверка в сервисе).
 reportsRouter.put('/:id/category-limits', reportsController.setCategoryLimits);
 
 // POST /reports/:id/daily-expenses — RPC create_daily_expense (хук
 // useCreateDailyExpense): добавление daily-расхода на первую свободную дату
-// периода отчёта. Форма операции на странице отчёта, ежедневная вкладка.
+// периода (период сервер берёт из строки отчёта). Форма операции на странице
+// отчёта, ежедневная вкладка.
 reportsRouter.post('/:id/daily-expenses', reportsController.createDailyExpense);
 
 // DELETE /reports/:id/daily-expenses — RPC disable_daily_expenses (хук

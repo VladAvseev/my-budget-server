@@ -1,7 +1,12 @@
+import { authenticate } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { operationsController } from './controller.js';
 
 export const operationsRouter = Router();
+
+// Все маршруты требуют Bearer access-токен: замена RLS Supabase,
+// ограничивавшего операции рамками отчётов пользователя.
+operationsRouter.use(authenticate);
 
 // GET /operations?reportId={id}&type={type} — RPC get_operations_by_report (хук
 // useOperations): операции одного отчёта, отфильтрованные по типу

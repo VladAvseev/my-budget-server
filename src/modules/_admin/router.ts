@@ -1,7 +1,12 @@
+import { authenticate, requireAdmin } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { adminController } from './controller.js';
 
 export const adminRouter = Router();
+
+// Замена проверки is_admin() внутри каждой RPC-функции Supabase
+// (raise exception 'Доступ запрещён'): сначала валидируем JWT, затем роль.
+adminRouter.use(authenticate, requireAdmin);
 
 // GET /admin/dashboard/stats — RPC admin_get_dashboard_stats (хук
 // useAdminStats): сводная статистика — пользователи (всего/без отчётов/

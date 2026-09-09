@@ -12,6 +12,12 @@ if (!connectionString) {
 // иначе локальный PostgreSQL без SSL не примет соединение.
 const needsSsl = /([?&])sslmode=require/i.test(connectionString);
 
+// Колонки типа `date` (OID 1082) драйвер по умолчанию парсит в JS Date на
+// локальную полночь — при сериализации в ISO-строку день уезжает на сутки
+// назад для таймзонов западнее UTC. Оставляем сырую строку 'YYYY-MM-DD':
+// клиент и от Supabase получал даты именно строками (колонки были text/jsonb).
+pg.types.setTypeParser(pg.types.builtins.DATE, (value: string) => value);
+
 export const pool = new Pool({
   connectionString,
   max: 5, // небольшой пул: достаточно для ненагруженной системы

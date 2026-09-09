@@ -1,7 +1,11 @@
+import { authenticate } from '@/middlewares/authMiddleware.js';
 import { Router } from 'express';
 import { goalsController } from './controller.js';
 
 export const goalsRouter = Router();
+
+// Все маршруты требуют Bearer access-токен: замена RLS Supabase.
+goalsRouter.use(authenticate);
 
 // GET /goals — RPC get_goals (хук useGoals): цели накоплений пользователя
 // (одна цель на savings-категорию). Секция целей на странице «Накопления»
