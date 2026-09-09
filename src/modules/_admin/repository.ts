@@ -151,17 +151,6 @@ export class AdminRepository {
     );
     return rows[0].data ?? [];
   }
-
-  /**
-   * Удаление пользователя админкой. Все связанные строки (reports,
-   * categories, operations, accumulations, goals, category_limits,
-   * refresh_tokens) снимает on delete cascade в db/schema.sql.
-   * true — строка users существовала и удалена; false — id не найден.
-   */
-  async removeUser(id: string): Promise<boolean> {
-    const { rowCount } = await pool.query('DELETE FROM public.users WHERE id = $1', [id]);
-    return (rowCount ?? 0) > 0;
-  }
 }
 
 export const adminRepository = new AdminRepository();
