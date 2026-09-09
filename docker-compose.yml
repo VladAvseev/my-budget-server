@@ -55,15 +55,9 @@ services:
   # ── Фронтенд (репозиторий client, клон рядом) ──────────────────────────────
   web:
     # Контекст — ../client: nginx-образ со собранной статикой,
-    # /api/ внутри него проксируется на api:5001 (см. client/docker/nginx.conf)
-    build:
-      context: ../client
-      args:
-        # Публичные anon-ключи Supabase: пока клиент не переписан на этот API
-        # (этап 3), бандл в контейнере должен уметь ходить в прежний бэкенд.
-        # Пустые значения = нерабочий фронт, но /api продолжает обслуживаться.
-        SUPABASE_URL: ${SUPABASE_URL:-}
-        SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    # /api/ внутри него проксируется на api:5001 (см. client/docker/nginx.conf).
+    # Секретов не требует: бандл ходит в same-origin '/api/v1'.
+    build: ../client
     restart: unless-stopped
     ports:
       # Единственная точка входа снаружи Docker: только localhost,

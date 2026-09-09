@@ -2,7 +2,22 @@
 
 ## О проекте
 
-Универсальный шаблон для быстрого старта разработки REST API на основе NodeJS + Express + TypeScript. Содержит минимальный, но достаточный набор конфигураций и инструментов для начала работы над бизнес-логикой без дополнительной настройки.
+REST-бэкенд приложения my-budget: Express + TypeScript + PostgreSQL. Модули в
+`src/modules/_*`-port'ируют RPC-функции прежнего Supabase-бэкенда и обслуживают
+фронтенд `client/` (тот ходит на `/api/v1` через `src/shared/api/http.ts`).
+
+## Деплой и инфраструктура
+
+- Продакшн: Docker Compose на сервере Reg.ru (`/opt/mybudget/server`),
+  стек `db` (postgres:16) + `api` (этот репозиторий) + `web` (клон `client/`);
+  секреты — в локальном `.env` на сервере (не в git).
+- Схема БД: `db/schema.sql`, применяется автоматически при первом старте тома
+  `pgdata`; дальнейшие правки — руками через
+  `docker compose exec db psql -U mybudget -d mybudget` и коммитить в этот файл.
+- CI (`.gitlab-ci.yml`): build+lint+typecheck, job `deploy-api` (активен после
+  заведения `DEPLOY_SSH_KEY` в Variables), зеркало в GitHub.
+- Миграция данных из Supabase: `db/migrate-from-supabase.mjs` (запуск на
+  сервере), отчёт о непрошеных паролях печатает в консоль.
 
 ## Стек
 
