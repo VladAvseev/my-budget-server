@@ -9,6 +9,7 @@ import type {
   DatabaseSize,
   LogsPeriod,
   LogsStatusFilter,
+  LogsUserFilter,
 } from './types.js';
 
 /**
@@ -166,24 +167,34 @@ export class AdminRepository {
 
   /**
    * Страница логов для админки. Фильтр по статусу — whitelist из
-   * LogsStatusFilter, мапится в условие status < 400 / >= 400.
+   * LogsStatusFilter, мапится в условие status < 400 / >= 400; фильтр по
+   * автору — LogsUserFilter (все / без авторизации / конкретный пользователь).
+   * Email автора тянется LEFT JOIN по public.users: у строк без авторизации
+   * (user_id is null) он остаётся null.
    */
   async getLogs(
     filter: LogsStatusFilter,
+    user: LogsUserFilter,
     page: number,
     limit: number,
   ): Promise<AdminLogsPage> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (filter === 'success') {
-      conditions.push(`status < 400`);
+      conditions.push(`rl.status < 400`);
     } else if (filter === 'error') {
-      conditions.push(`status >= 400`);
+      conditions.push(`rl.status >= 400`);
+    }
+    if (user.kind === 'anonymous') {
+      conditions.push(`rl.is_authenticated = false`);
+    } else if (user.kind === 'user') {
+      params.push(user.userId);
+      conditions.push(`rl.user_id = $${params.length}`);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows: countRows } = await pool.query<{ count: string }>(
-      `SELECT count(*) AS count FROM public.request_logs ${where}`,
+      `SELECT count(*) AS count FROM public.request_logs rl ${where}`,
       params,
     );
 
@@ -200,14 +211,18 @@ export class AdminRepository {
       response_body: unknown;
       error: string | null;
       user_id: string | null;
+      is_authenticated: boolean;
+      user_email: string | null;
       ip: string | null;
       user_agent: string | null;
     }>(
-      `SELECT id, created_at, method, path, query, body, status, duration_ms,
-              response_body, error, user_id, host(ip) AS ip, user_agent
-       FROM public.request_logs
+      `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.query, rl.body, rl.status,
+              rl.duration_ms, rl.response_body, rl.error, rl.user_id, rl.is_authenticated,
+              u.email AS user_email, host(rl.ip) AS ip, rl.user_agent
+       FROM public.request_logs rl
+       LEFT JOIN public.users u ON u.id = rl.user_id
        ${where}
-       ORDER BY created_at DESC
+       ORDER BY rl.created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
@@ -225,6 +240,8 @@ export class AdminRepository {
         responseBody: row.response_body,
         error: row.error,
         userId: row.user_id,
+        userEmail: row.user_email,
+        isAuthenticated: row.is_authenticated,
         ip: row.ip,
         userAgent: row.user_agent,
       })),

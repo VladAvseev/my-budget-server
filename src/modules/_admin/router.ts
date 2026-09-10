@@ -29,9 +29,10 @@ adminRouter.get('/dashboard/database-size', adminController.getDatabaseSize);
 // «Пользователи» админ-панели.
 adminRouter.get('/users', adminController.listUsers);
 
-// GET /admin/logs?status=all|success|error&page=1&limit=50 — трассировка
-// HTTP-запросов из request_logs (пишет requestLoggingMiddleware). Вкладка
-// «Логи» админ-панели: таблица с фильтром по успеху и пагинацией.
+// GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&page=1&limit=50 —
+// трассировка HTTP-запросов из request_logs (пишет requestLoggingMiddleware).
+// Вкладка «Логи» админ-панели: таблица с фильтром по успеху и автору запроса
+// (userId=anonymous — только запросы без авторизации) и пагинацией.
 adminRouter.get('/logs', adminController.listLogs);
 
 // GET /admin/logs/metrics?period=24h|7d|30d|all — агрегированные метрики

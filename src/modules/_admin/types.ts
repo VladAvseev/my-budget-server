@@ -90,6 +90,17 @@ export interface AdminUserRow {
 /** Фильтр списка логов: все / только успешные (<400) / только с ошибкой (≥400). */
 export type LogsStatusFilter = 'all' | 'success' | 'error';
 
+/**
+ * Фильтр логов по автору (query `userId` в GET /admin/logs):
+ *   * all       — без фильтра;
+ *   * anonymous — только запросы без авторизации (is_authenticated = false);
+ *   * user      — запросы конкретного пользователя.
+ */
+export type LogsUserFilter =
+  | { kind: 'all' }
+  | { kind: 'anonymous' }
+  | { kind: 'user'; userId: string };
+
 /** Период агрегации метрик. */
 export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
 
@@ -105,7 +116,12 @@ export interface AdminLogRow {
   durationMs: number;
   responseBody: unknown | null;
   error: string | null;
+  /** Автор запроса; null — запрос без авторизации (или пользователь удалён). */
   userId: string | null;
+  /** Email автора (JOIN users) для отображения в админке; null, если неавторизован. */
+  userEmail: string | null;
+  /** true — на момент запроса был валидный access-токен (см. is_authenticated). */
+  isAuthenticated: boolean;
   ip: string | null;
   userAgent: string | null;
 }

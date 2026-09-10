@@ -9,6 +9,7 @@ import type {
   DatabaseSize,
   LogsPeriod,
   LogsStatusFilter,
+  LogsUserFilter,
 } from './types.js';
 
 /**
@@ -43,17 +44,44 @@ export class AdminService {
   private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = ['all', 'success', 'error'];
   private static readonly LOG_PERIODS: LogsPeriod[] = ['24h', '7d', '30d', 'all'];
 
-  /** GET /admin/logs — query: status=all|success|error, page, limit. */
+  /** Значение userId = «только запросы без авторизации» (остальное — uuid пользователя). */
+  private static readonly LOG_USER_ANONYMOUS = 'anonymous';
+
+  /**
+   * GET /admin/logs — query: status=all|success|error, userId=<uuid>|anonymous,
+   * page, limit.
+   */
   async listLogs(query: Record<string, unknown>): Promise<AdminLogsPage> {
     const status = (query.status ?? 'all') as string;
     if (!AdminService.LOG_STATUS_FILTERS.includes(status as LogsStatusFilter)) {
       throw new AppError('Недопустимый фильтр status', 400);
     }
 
+    const user = this.parseLogsUserFilter(query.userId);
+
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
 
-    return adminRepository.getLogs(status as LogsStatusFilter, page, limit);
+    return adminRepository.getLogs(status as LogsStatusFilter, user, page, limit);
+  }
+
+  /**
+   * Разбор фильтра по автору: пусто/all — без фильтра, 'anonymous' — запросы
+   * без авторизации, иначе — uuid пользователя. Мусорный uuid = 400, чтобы в
+   * репозиторий не уходило значение, которое никогда ничего не найдёт.
+   */
+  private parseLogsUserFilter(value: unknown): LogsUserFilter {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (raw === '' || raw === 'all') {
+      return { kind: 'all' };
+    }
+    if (raw === AdminService.LOG_USER_ANONYMOUS) {
+      return { kind: 'anonymous' };
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+      throw new AppError('Недопустимый фильтр userId', 400);
+    }
+    return { kind: 'user', userId: raw };
   }
 
   /** GET /admin/logs/metrics — query: period=24h|7d|30d|all (по умолчанию 7d). */

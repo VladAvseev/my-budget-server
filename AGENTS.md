@@ -11,9 +11,12 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
 - Продакшн: Docker Compose на сервере Reg.ru (`/opt/mybudget/server`),
   стек `db` (postgres:16) + `api` (этот репозиторий) + `web` (клон `client/`);
   секреты — в локальном `.env` на сервере (не в git).
-- Схема БД: `db/schema.sql`, применяется автоматически при первом старте тома
-  `pgdata`; дальнейшие правки — руками через
-  `docker compose exec db psql -U mybudget -d mybudget` и коммитить в этот файл.
+- Схема БД: `db/schema.sql` (полная, рассчитана на пустую базу — на живой БД
+  целиком не запускать), применяется автоматически при первом старте тома
+  `pgdata`; дальнейшие правки — двумя коммитами: в `db/schema.sql` (для свежих
+  установок) и отдельным идемпотентным файлом в `db/migrations/` для догона
+  боевой БД. Применение: `docker compose exec db psql -U mybudget -d mybudget`
+  и вставить содержимое файла (либо `-f - < db/migrations/<file>.sql`).
 - CI (`.gitlab-ci.yml`): build+lint+typecheck, job `deploy-api` (активен после
   заведения `DEPLOY_SSH_KEY` в Variables), зеркало в GitHub.
 - Миграция данных из Supabase: `db/migrate-from-supabase.mjs` читает источник
@@ -110,13 +113,19 @@ src/
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
 - **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
   в таблицу `public.request_logs` (схема — `db/schema.sql`): метод/путь/query/тела,
-  статус, длительность, user_id/ip/user-agent. Тела маскируются (`password`,
-  `newPassword`, `refreshToken` → `'***'`), урезаются до 4 КБ; `/health` и
-  `/admin/logs*` не логируются; вставка fire-and-forget. Env: `LOG_BODIES`
-  (по умолчанию `true`), `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
+  статус, длительность, user_id/is_authenticated/ip/user-agent. Автор — из
+  `req.user`, который заполняет `authenticate`; пишется в `res.on('finish')`,
+  поэтому к этому моменту уже известна роль. `is_authenticated` фиксирует факт
+  авторизации на момент запроса и отличается от `user_id is null` (после
+  `on delete set null` строки удалённого юзера остались бы «без авторизации»).
+  Тела маскируются (`password`, `newPassword`, `refreshToken` → `'***'`),
+  урезаются до 4 КБ; `/health` и вся админ-панель (`/api/v1/admin/*`) не
+  логируются; вставка fire-and-forget. Env: `LOG_BODIES` (по умолчанию `true`),
+  `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
   строки middleware удаляет сам, вероятностно ~1 раз на 200 запросов).
-  Просмотр/метрики — `GET /admin/logs`, `GET /admin/logs/metrics` (вкладка
-  «Логи» админ-панели клиента).
+  Просмотр/метрики — `GET /admin/logs` (фильтры `status`, `userId=<uuid>` или
+  `userId=anonymous` — только запросы без авторизации), `GET /admin/logs/metrics`
+  (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
 - **Конфигурация:** `.env` файл (не `.env.example`)

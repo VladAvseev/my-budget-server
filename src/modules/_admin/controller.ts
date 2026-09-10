@@ -47,7 +47,7 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/logs?status=&page=&limit= → 200: страница логов запросов. */
+  /** GET /admin/logs?status=&userId=&page=&limit= → 200: страница логов запросов. */
   async listLogs(req: Request, res: Response, next: NextFunction) {
     try {
       const logs = await adminService.listLogs(req.query as Record<string, unknown>);

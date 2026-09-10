@@ -5,7 +5,8 @@ import type { NextFunction, Request, Response } from 'express';
  * Логирование HTTP-запросов в таблицу public.request_logs.
  *
  * Что пишется: метод, путь, query, тело запроса, статус, длительность,
- * тело ответа / текст ошибки, user_id (если уже аутентифицирован), ip,
+ * тело ответа / текст ошибки, user_id + is_authenticated (автор запроса:
+ * для неавторизованных user_id = null, is_authenticated = false), ip,
  * user-agent. Тело ответа перехватывается обёрткой над res.json/res.send,
  * длительность считается до res.finish.
  *
@@ -15,8 +16,8 @@ import type { NextFunction, Request, Response } from 'express';
  *   * тела и ответ урезаются до ~4 КБ;
  *   * логирование НЕ блокирует запрос: вставка fire-and-forget, ошибка
  *     записи выводится в stderr и не влияет на ответ клиенту;
- *   * не логируем сами эндпоинты просмотра логов и health — чтобы
- *     админская статистика не шумела сама от себя.
+ *   * не логируем health-check и всю админ-панель (/api/v1/admin/*) — иначе
+ *     админка шумела бы сама от себя своими опросами;
  *
  * Настройки (.env, с дефолтами ниже):
  *   LOG_BODIES=false         — не писать тела запроса/ответа;
@@ -32,8 +33,15 @@ const LOG_BODIES = process.env.LOG_BODIES !== 'false';
 /** Максимальный размер сохраняемого тела (символов JSON-строки). */
 const BODY_LIMIT = 4096;
 
-/** Путь, которые не логируем (просмотр логов, health-check). */
+/** Точные пути, которые не логируем. */
 const SKIPPED_PATHS = new Set(['/api/v1/health']);
+
+/**
+ * Префиксы, которые не логируем целиком: вся админ-панель (/api/v1/admin/*) —
+ * иначе дашборд, список пользователей и просмотр логов заполняли бы
+ * request_logs только своими опросами.
+ */
+const SKIPPED_PREFIXES = ['/api/v1/admin'];
 
 /** Ключи тел, значения которых маскируются перед записью в лог. */
 const SENSITIVE_KEYS = new Set(['password', 'newpassword', 'refreshtoken']);
@@ -88,7 +96,10 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
   const basePath = req.baseUrl || ''; // при монтировании /api/v1 — '/api/v1'
   const fullPath = basePath + req.path;
 
-  if (SKIPPED_PATHS.has(fullPath) || fullPath.startsWith('/api/v1/admin/logs')) {
+  if (
+    SKIPPED_PATHS.has(fullPath) ||
+    SKIPPED_PREFIXES.some((prefix) => fullPath.startsWith(prefix))
+  ) {
     return next();
   }
 
@@ -131,8 +142,8 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
       .query(
         `INSERT INTO public.request_logs
            (method, path, query, body, status, duration_ms, response_body, error,
-            user_id, ip, user_agent)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7::jsonb, $8, $9, $10, $11)`,
+            user_id, is_authenticated, ip, user_agent)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)`,
         [
           req.method,
           fullPath,
@@ -143,6 +154,9 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
           responsePayload,
           errorPayload,
           req.user?.id ?? null,
+          // Фиксируем факт авторизации на момент запроса: user_id может быть
+          // обнулён каскадом (on delete set null) после удаления пользователя.
+          req.user != null,
           req.ip ?? null,
           req.get('user-agent') ?? null,
         ],

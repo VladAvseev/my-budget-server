@@ -146,14 +146,20 @@ create table public.request_logs (
   response_body jsonb,
   error text,
   user_id uuid references public.users (id) on delete set null,
+  -- Отделяет «запрос без авторизации» от «user_id обнулён каскадом»:
+  -- пишется в момент запроса (requestLoggingMiddleware), не меняется ретроспективно.
+  is_authenticated boolean not null default false,
   ip inet,
   user_agent text
 );
 
 create index request_logs_created_at_idx on public.request_logs (created_at desc);
 create index request_logs_status_created_at_idx on public.request_logs (status, created_at desc);
+-- Фильтр «Логи» в админке по пользователю (GET /admin/logs?userId=)
+create index request_logs_user_id_idx on public.request_logs (user_id, created_at desc);
 
 -- ── Автообновление updated_at ───────────────────────────────────────────────
+create function public.set_updated_at()
 returns trigger
 language plpgsql
 as $$
