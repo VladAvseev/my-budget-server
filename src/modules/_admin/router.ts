@@ -13,9 +13,11 @@ adminRouter.use(authenticate, requireAdmin);
 // операции по типам. Дашборд админ-панели (страница «Дашборд»).
 adminRouter.get('/dashboard/stats', adminController.getStats);
 
-// GET /admin/dashboard/operations-dynamics (хук useAdminOperationsDynamics):
+// GET /admin/dashboard/operations-dynamics?audience=all|users
+// (хук useAdminOperationsDynamics):
 // количество операций по дням
-// (группировка в московском времени). График динамики на дашборде.
+// (группировка в московском времени). Аудитория users — только операции
+// пользователей с ролью 'user' (без админов). График динамики на дашборде.
 adminRouter.get('/dashboard/operations-dynamics', adminController.getOperationsDynamics);
 
 // GET /admin/dashboard/database-size (хук useAdminDatabaseSize):
@@ -50,3 +52,8 @@ adminRouter.get('/logs', adminController.listLogs);
 // логов (объём, errorRate, avg/p95, топы эндпоинтов, динамика). Сводный блок
 // вкладки «Логи» админ-панели.
 adminRouter.get('/logs/metrics', adminController.getLogsMetrics);
+
+// GET /admin/logs/dynamics?audience=all|users — динамика количества логов по
+// МСК-часам (клиент агрегирует часы в дни). Отдельная карточка-график «Логи»
+// на вкладке «Логи»: фильтр «Все/Пользователи» по роли автора (user_role).
+adminRouter.get('/logs/dynamics', adminController.getLogsDynamics);

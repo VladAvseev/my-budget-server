@@ -4,10 +4,12 @@ import { adminRepository } from './repository.js';
 import type {
   AdminDashboardStats,
   AdminDynamicsRow,
+  AdminLogsDynamics,
   AdminLogsMetrics,
   AdminLogsPage,
   AdminUserRow,
   DatabaseSize,
+  LogsAudience,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
@@ -29,8 +31,32 @@ export class AdminService {
     return adminRepository.getStats();
   }
 
-  async getOperationsDynamics(): Promise<AdminDynamicsRow[]> {
-    return adminRepository.getOperationsDynamics();
+  /**
+   * GET /admin/dashboard/operations-dynamics — query: audience=all|users
+   * (по умолчанию all; users — только операции пользователей с ролью 'user').
+   */
+  async getOperationsDynamics(query: Record<string, unknown>): Promise<AdminDynamicsRow[]> {
+    return adminRepository.getOperationsDynamics(this.parseAudience(query.audience));
+  }
+
+  /** GET /admin/logs/dynamics — query: audience=all|users (график логов по часам/дням). */
+  async getLogsDynamics(query: Record<string, unknown>): Promise<AdminLogsDynamics> {
+    return adminRepository.getLogsDynamics(this.parseAudience(query.audience));
+  }
+
+  /**
+   * Разбор фильтра аудитории по роли: пусто/all — без фильтра, users — только
+   * роль 'user'. Мусорное значение = 400 (в репозиторий уходит только 'all'|'users').
+   */
+  private parseAudience(value: unknown): LogsAudience {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (raw === '' || raw === 'all') {
+      return 'all';
+    }
+    if (raw === 'users') {
+      return 'users';
+    }
+    throw new AppError('Недопустимый фильтр audience', 400);
   }
 
   async getDatabaseSize(): Promise<DatabaseSize> {

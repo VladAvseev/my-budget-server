@@ -118,6 +118,29 @@ export type LogsUserFilter =
 export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
 
 /**
+ * Фильтр по роли автора (query `audience` в эндпоинтах графиков):
+ *   * all   — без фильтра (операции/логи и пользователей, и админов);
+ *   * users — только роль 'user' (без админов и без запросов без авторизации).
+ */
+export type LogsAudience = 'all' | 'users';
+
+/**
+ * Одна точка графика динамики логов: бакет — МСК-час (самая мелкая гранулярность;
+ * «День» клиент агрегирует из часов сам, отдельного запроса не нужно).
+ */
+export interface AdminLogsDynamicsPoint {
+  /** Начало МСК-часа как 'YYYY-MM-DDTHH:00:00' (wall-clock Москвы, без смещения). */
+  hour: string;
+  count: number;
+}
+
+/** Ответ GET /admin/logs/dynamics. */
+export interface AdminLogsDynamics {
+  audience: LogsAudience;
+  points: AdminLogsDynamicsPoint[];
+}
+
+/**
  * Сортировка строк логов (query `sort`/`order` в GET /admin/logs):
  * date — created_at (по умолчанию), duration — duration_ms.
  */

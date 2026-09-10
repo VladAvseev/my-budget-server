@@ -3,10 +3,12 @@ import type {
   AdminDashboardStats,
   AdminDynamicsRow,
   AdminLogEndpointStat,
+  AdminLogsDynamics,
   AdminLogsMetrics,
   AdminLogsPage,
   AdminUserRow,
   DatabaseSize,
+  LogsAudience,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
@@ -93,18 +95,56 @@ export class AdminRepository {
    * Количество операций по дням.
    * created_at переводим в московское время до группировки — сутки графика
    * считаются по МСК (график клиента построен на этом часовом поясе).
+   *
+   * Аудитория: 'all' — все операции (и пользователей, и админов); 'users' —
+   * только тех, у кого роль 'user'. Операции привязаны к создателю через
+   * operations.user_id, роль берём JOIN'ом к users (JOIN inner намеренно
+   * отсекает и 'admin', и удалённых авторов).
    */
-  async getOperationsDynamics(): Promise<AdminDynamicsRow[]> {
+  async getOperationsDynamics(audience: LogsAudience = 'all'): Promise<AdminDynamicsRow[]> {
+    const roleJoin =
+      audience === 'users'
+        ? `JOIN public.users au ON au.id = o.user_id AND au.role = 'user'`
+        : '';
     const { rows } = await pool.query<{ day: string; operations_count: string }>(
       `SELECT
-         (o.created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-         count(*) AS operations_count
-       FROM public.operations o
-       GROUP BY 1
-       ORDER BY 1 ASC`,
+          (o.created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
+          count(*) AS operations_count
+        FROM public.operations o
+        ${roleJoin}
+        GROUP BY 1
+        ORDER BY 1 ASC`,
     );
     // day — строка 'YYYY-MM-DD' (парсер DATE), count — bigint-строка.
     return rows.map((row) => ({ day: row.day, operations_count: Number(row.operations_count) }));
+  }
+
+  /**
+   * Динамика количества логов по МСК-часам с фильтром по аудитории.
+   *
+   * Возвращаем только непустые МСК-часы (клиент сам достраивает нули на пустые
+   * интервалы и агрегирует часы в сутки для режима «День»). Аудитория 'users' —
+   * строки с user_role = 'user': запросы админов и без авторизации (NULL)
+   * отсекаются.
+   */
+  async getLogsDynamics(audience: LogsAudience): Promise<AdminLogsDynamics> {
+    const roleCondition =
+      audience === 'users'
+        ? `WHERE rl.user_role = 'user'`
+        : '';
+    const { rows } = await pool.query<{ hour: string; count: string }>(
+      `SELECT to_char(date_trunc('hour', rl.created_at AT TIME ZONE 'Europe/Moscow'),
+                      'YYYY-MM-DD"T"HH24:00:00') AS hour,
+              count(*) AS count
+        FROM public.request_logs rl
+        ${roleCondition}
+        GROUP BY 1
+        ORDER BY 1 ASC`,
+    );
+    return {
+      audience,
+      points: rows.map((row) => ({ hour: row.hour, count: Number(row.count) })),
+    };
   }
 
   /** Размер текущей базы сервера. */

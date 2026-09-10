@@ -16,10 +16,10 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/dashboard/operations-dynamics → 200: [{ day, operations_count }]. */
-  async getOperationsDynamics(_req: Request, res: Response, next: NextFunction) {
+  /** GET /admin/dashboard/operations-dynamics?audience= → 200: [{ day, operations_count }]. */
+  async getOperationsDynamics(req: Request, res: Response, next: NextFunction) {
     try {
-      const dynamics = await adminService.getOperationsDynamics();
+      const dynamics = await adminService.getOperationsDynamics(req.query as Record<string, unknown>);
       res.status(200).json({ data: dynamics });
     } catch (error) {
       next(error);
@@ -84,6 +84,16 @@ export class AdminController {
     try {
       const metrics = await adminService.getLogsMetrics(req.query as Record<string, unknown>);
       res.status(200).json({ data: metrics });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** GET /admin/logs/dynamics?audience= → 200: динамика логов по МСК-часам. */
+  async getLogsDynamics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const dynamics = await adminService.getLogsDynamics(req.query as Record<string, unknown>);
+      res.status(200).json({ data: dynamics });
     } catch (error) {
       next(error);
     }

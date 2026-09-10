@@ -121,9 +121,13 @@ src/
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
 - **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
   в таблицу `public.request_logs` (схема — `db/schema.sql`): дата/время, метод,
-  путь, статус, длительность, текст ошибки, user_id/is_authenticated, ip. Автор — из
+  путь, статус, длительность, текст ошибки, user_id/user_role/is_authenticated, ip.
+  Автор — из
   `req.user`, который заполняет `authenticate`; пишется в `res.on('finish')`,
-  поэтому к этому моменту уже известен статус. `is_authenticated` фиксирует факт
+  поэтому к этому моменту уже известен статус. `user_role` — роль автора из
+  JWT-claim на момент запроса ('user' | 'admin', null для неавторизованных):
+  фиксируется именно тогда, т.к. роль в `users` со временем может измениться.
+  `is_authenticated` фиксирует факт
   авторизации на момент запроса и отличается от `user_id is null` (после
   `on delete set null` строки удалённого юзера остались бы «без авторизации»).
   Тела запроса и ответа, query и User-Agent в базу НЕ пишутся — они занимали
@@ -141,6 +145,16 @@ src/
   `GET /admin/logs/metrics`
   (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`;
   строка с ошибкой раскрывается по клику и показывает текст ошибки).
+  График динамики логов — `GET /admin/logs/dynamics?audience=all|users`:
+  считает логи по МСК-часам (`date_trunc('hour', created_at AT TIME ZONE
+  'Europe/Moscow')`), аудитория `users` фильтрует по `user_role = 'user'`
+  (без админов и без неавторизованных); день клиент агрегирует из часов сам.
+  Тот же `audience=all|users` есть у `GET /admin/dashboard/operations-dynamics`
+  (для `users` операции фильтруются JOIN'ом `users.role = 'user'` по
+  `operations.user_id`). `user_role` в существующих строках проставлена
+  идемпотентной миграцией `db/migrations/2026-09-11-request-logs-user-role.sql`
+  через `user_id → users.role` (у неавторизованных и удалённых авторов роль
+  остаётся NULL — восстановить по почте нельзя, она в логах не хранилась).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
 - **Конфигурация:** `.env` файл (не `.env.example`)

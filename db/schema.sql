@@ -146,6 +146,9 @@ create table public.request_logs (
   -- Только для неудачных ответов: сообщение из envelope { error: { message } }.
   error text,
   user_id uuid references public.users (id) on delete set null,
+  -- Роль автора из JWT на момент запроса ('user' | 'admin'); null — без авторизации
+  -- или пользователь удалён (on delete set null обнуляет user_id, роль остаётся).
+  user_role text check (user_role in ('user', 'admin')),
   -- Отделяет «запрос без авторизации» от «user_id обнулён каскадом»:
   -- пишется в момент запроса (requestLoggingMiddleware), не меняется ретроспективно.
   is_authenticated boolean not null default false,
@@ -156,6 +159,8 @@ create index request_logs_created_at_idx on public.request_logs (created_at desc
 create index request_logs_status_created_at_idx on public.request_logs (status, created_at desc);
 -- Фильтр «Логи» в админке по пользователю (GET /admin/logs?userId=)
 create index request_logs_user_id_idx on public.request_logs (user_id, created_at desc);
+-- Фильтр/группировка по роли автора (график логов audience='users')
+create index request_logs_user_role_created_at_idx on public.request_logs (user_role, created_at desc);
 
 -- ── Автообновление updated_at ───────────────────────────────────────────────
 -- updated_at двигается только если изменилась хотя бы одна колонка, кроме
