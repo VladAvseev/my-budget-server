@@ -36,6 +36,14 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Минимальная длина пароля — та же клиентская валидация (6 символов). */
 const MIN_PASSWORD_LENGTH = 6;
 
+/**
+ * Максимальная длина пароля. bcrypt молча усекает ввод после 72 байт:
+ * без этого ограничения пароль длиннее 72 символов «войдёт» по первым 72,
+ * что сбивает пользователя с толку и уменьшает фактическую энтропию
+ * (аналог GHSA-2cjv-6wg9-f4f3 в Strapi). Для ASCII 1 символ = 1 байт.
+ */
+const MAX_PASSWORD_LENGTH = 72;
+
 /** TTL access-токена в секундах для ответа клиенту (соответствует ACCESS_TOKEN_TTL = '1h'). */
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
 
@@ -57,6 +65,9 @@ function validateCredentials(email: unknown, password: unknown): asserts email i
   }
   if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
     throw new AppError('Пароль должен содержать не менее 6 символов', 400);
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new AppError('Пароль не должен превышать 72 символа', 400);
   }
 }
 
@@ -147,6 +158,9 @@ export class AuthService {
   async updatePassword(userId: string, input: UpdatePasswordInput): Promise<void> {
     if (typeof input.newPassword !== 'string' || input.newPassword.length < MIN_PASSWORD_LENGTH) {
       throw new AppError('Пароль должен содержать не менее 6 символов', 400);
+    }
+    if (input.newPassword.length > MAX_PASSWORD_LENGTH) {
+      throw new AppError('Пароль не должен превышать 72 символа', 400);
     }
 
     const passwordHash = await hash(input.newPassword, BCRYPT_ROUNDS);

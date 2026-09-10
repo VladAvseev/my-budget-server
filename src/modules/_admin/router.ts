@@ -28,3 +28,13 @@ adminRouter.get('/dashboard/database-size', adminController.getDatabaseSize);
 // отчётов/операций/категорий/накоплений/целей). Таблица страницы
 // «Пользователи» админ-панели.
 adminRouter.get('/users', adminController.listUsers);
+
+// GET /admin/logs?status=all|success|error&page=1&limit=50 — трассировка
+// HTTP-запросов из request_logs (пишет requestLoggingMiddleware). Вкладка
+// «Логи» админ-панели: таблица с фильтром по успеху и пагинацией.
+adminRouter.get('/logs', adminController.listLogs);
+
+// GET /admin/logs/metrics?period=24h|7d|30d|all — агрегированные метрики
+// логов (объём, errorRate, avg/p95, топы эндпоинтов, динамика). Сводный блок
+// вкладки «Логи» админ-панели.
+adminRouter.get('/logs/metrics', adminController.getLogsMetrics);

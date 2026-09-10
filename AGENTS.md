@@ -54,6 +54,8 @@ src/
   index.ts                     — точка входа
   app.ts                       — Express-приложение (middleware, монтирование /api/v1)
   router.ts                    — корневой роутер API (подключает роутеры модулей)
+  middlewares/                 — authenticate, requireAdmin, rate-limit,
+                                 error/notFound, requestLogging (логи в БД)
   modules/
     _<moduleName>/
       router.ts      — определение роутов
@@ -106,6 +108,15 @@ src/
 
 - **Path alias:** `@/` → `./src/` (настроен в `tsconfig.json`)
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
+- **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
+  в таблицу `public.request_logs` (схема — `db/schema.sql`): метод/путь/query/тела,
+  статус, длительность, user_id/ip/user-agent. Тела маскируются (`password`,
+  `newPassword`, `refreshToken` → `'***'`), урезаются до 4 КБ; `/health` и
+  `/admin/logs*` не логируются; вставка fire-and-forget. Env: `LOG_BODIES`
+  (по умолчанию `true`), `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
+  строки middleware удаляет сам, вероятностно ~1 раз на 200 запросов).
+  Просмотр/метрики — `GET /admin/logs`, `GET /admin/logs/metrics` (вкладка
+  «Логи» админ-панели клиента).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
 - **Конфигурация:** `.env` файл (не `.env.example`)

@@ -46,6 +46,26 @@ export class AdminController {
       next(error);
     }
   }
+
+  /** GET /admin/logs?status=&page=&limit= → 200: страница логов запросов. */
+  async listLogs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const logs = await adminService.listLogs(req.query as Record<string, unknown>);
+      res.status(200).json({ data: logs });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** GET /admin/logs/metrics?period= → 200: агрегированные метрики логов. */
+  async getLogsMetrics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const metrics = await adminService.getLogsMetrics(req.query as Record<string, unknown>);
+      res.status(200).json({ data: metrics });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const adminController = new AdminController();

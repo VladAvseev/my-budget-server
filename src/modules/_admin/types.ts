@@ -84,3 +84,66 @@ export interface AdminUserRow {
   accumulationsCount: number;
   goalsCount: number;
 }
+
+// ── Логи запросов (таблица public.request_logs) ─────────────────────────────
+
+/** Фильтр списка логов: все / только успешные (<400) / только с ошибкой (≥400). */
+export type LogsStatusFilter = 'all' | 'success' | 'error';
+
+/** Период агрегации метрик. */
+export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
+
+/** Одна строка лога (GET /admin/logs). */
+export interface AdminLogRow {
+  id: number;
+  createdAt: string;
+  method: string;
+  path: string;
+  query: unknown | null;
+  body: unknown | null;
+  status: number;
+  durationMs: number;
+  responseBody: unknown | null;
+  error: string | null;
+  userId: string | null;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+/** Ответ GET /admin/logs — страница + пагинация. */
+export interface AdminLogsPage {
+  items: AdminLogRow[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/** Эндпоинт со статистикой (топ-листы метрик). */
+export interface AdminLogEndpointStat {
+  endpoint: string; // 'GET /reports'
+  count: number;
+  avgDurationMs: number;
+  errorCount: number;
+}
+
+/** Динамика по дню (или по часу при period=24h). */
+export interface AdminLogsSeriesPoint {
+  point: string; // 'YYYY-MM-DD' или ISO-час
+  total: number;
+  errors: number;
+}
+
+/** Ответ GET /admin/logs/metrics. */
+export interface AdminLogsMetrics {
+  period: LogsPeriod;
+  total: number;
+  successCount: number;
+  errorCount: number;
+  /** Доля ошибок 0..1 (null, если запросов не было). */
+  errorRate: number | null;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  topSlowestEndpoints: AdminLogEndpointStat[];
+  topErrorEndpoints: AdminLogEndpointStat[];
+  perPoint: AdminLogsSeriesPoint[];
+}

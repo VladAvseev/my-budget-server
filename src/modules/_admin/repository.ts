@@ -1,5 +1,15 @@
 import { pool } from '@/db/pool.js';
-import type { AdminDashboardStats, AdminDynamicsRow, AdminUserRow, DatabaseSize } from './types.js';
+import type {
+  AdminDashboardStats,
+  AdminDynamicsRow,
+  AdminLogEndpointStat,
+  AdminLogsMetrics,
+  AdminLogsPage,
+  AdminUserRow,
+  DatabaseSize,
+  LogsPeriod,
+  LogsStatusFilter,
+} from './types.js';
 
 /**
  * Слой доступа к данным админ-панели.
@@ -150,6 +160,189 @@ export class AdminRepository {
       ) g ON g.user_id = u.id`,
     );
     return rows[0].data ?? [];
+  }
+
+  // ── Логи запросов (public.request_logs) ────────────────────────────────────
+
+  /**
+   * Страница логов для админки. Фильтр по статусу — whitelist из
+   * LogsStatusFilter, мапится в условие status < 400 / >= 400.
+   */
+  async getLogs(
+    filter: LogsStatusFilter,
+    page: number,
+    limit: number,
+  ): Promise<AdminLogsPage> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filter === 'success') {
+      conditions.push(`status < 400`);
+    } else if (filter === 'error') {
+      conditions.push(`status >= 400`);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows: countRows } = await pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM public.request_logs ${where}`,
+      params,
+    );
+
+    params.push(limit, (page - 1) * limit);
+    const { rows } = await pool.query<{
+      id: string;
+      created_at: string;
+      method: string;
+      path: string;
+      query: unknown;
+      body: unknown;
+      status: number;
+      duration_ms: number;
+      response_body: unknown;
+      error: string | null;
+      user_id: string | null;
+      ip: string | null;
+      user_agent: string | null;
+    }>(
+      `SELECT id, created_at, method, path, query, body, status, duration_ms,
+              response_body, error, user_id, host(ip) AS ip, user_agent
+       FROM public.request_logs
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+
+    return {
+      items: rows.map((row) => ({
+        id: Number(row.id),
+        createdAt: row.created_at,
+        method: row.method,
+        path: row.path,
+        query: row.query,
+        body: row.body,
+        status: row.status,
+        durationMs: row.duration_ms,
+        responseBody: row.response_body,
+        error: row.error,
+        userId: row.user_id,
+        ip: row.ip,
+        userAgent: row.user_agent,
+      })),
+      total: Number(countRows[0]?.count ?? 0),
+      page,
+      limit,
+    };
+  }
+
+  /**
+   * Метрики по логам за период: счётчики, среднее/p95, топы эндпоинтов,
+   * динамика (для 24h — по часам, иначе по дням). Период мапится в
+   * PostgreSQL-интервал через whitelist — никакой строки от клиента в SQL
+   * не подставляется.
+   */
+  async getLogsMetrics(period: LogsPeriod): Promise<AdminLogsMetrics> {
+    const intervalMap: Record<Exclude<LogsPeriod, 'all'>, string> = {
+      '24h': '24 hours',
+      '7d': '7 days',
+      '30d': '30 days',
+    };
+    const where = period === 'all' ? '' : `WHERE created_at >= now() - interval '${intervalMap[period]}'`;
+    const seriesTrunc = period === '24h' ? 'hour' : 'day';
+
+    const totalsQuery = pool.query<{
+      total: string;
+      success_count: string;
+      error_count: string;
+      avg_duration_ms: string | null;
+      p95_duration_ms: string | null;
+    }>(
+      `SELECT count(*) AS total,
+              count(*) FILTER (WHERE status < 400) AS success_count,
+              count(*) FILTER (WHERE status >= 400) AS error_count,
+              avg(duration_ms) AS avg_duration_ms,
+              percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_duration_ms
+       FROM public.request_logs ${where}`,
+    );
+
+    const topSlowestQuery = pool.query<{
+      endpoint: string;
+      count: string;
+      avg_duration_ms: string;
+      error_count: string;
+    }>(
+      `SELECT method || ' ' || path AS endpoint, count(*) AS count,
+              avg(duration_ms) AS avg_duration_ms,
+              count(*) FILTER (WHERE status >= 400) AS error_count
+       FROM public.request_logs ${where}
+       GROUP BY 1
+       ORDER BY avg(duration_ms) DESC
+       LIMIT 5`,
+    );
+
+    const topErrorsQuery = pool.query<{
+      endpoint: string;
+      count: string;
+      avg_duration_ms: string;
+      error_count: string;
+    }>(
+      `SELECT method || ' ' || path AS endpoint, count(*) AS count,
+              avg(duration_ms) AS avg_duration_ms,
+              count(*) FILTER (WHERE status >= 400) AS error_count
+       FROM public.request_logs
+       ${where ? `${where} AND` : 'WHERE'} status >= 400
+       GROUP BY 1
+       ORDER BY count(*) DESC
+       LIMIT 5`,
+    );
+
+    const seriesQuery = pool.query<{ point: string; total: string; errors: string }>(
+      `SELECT date_trunc('${seriesTrunc}', created_at) AS point,
+              count(*) AS total,
+              count(*) FILTER (WHERE status >= 400) AS errors
+       FROM public.request_logs ${where}
+       GROUP BY 1
+       ORDER BY 1 ASC`,
+    );
+
+    const [totals, topSlowest, topErrors, series] = await Promise.all([
+      totalsQuery,
+      topSlowestQuery,
+      topErrorsQuery,
+      seriesQuery,
+    ]);
+
+    const t = totals.rows[0];
+    const total = Number(t?.total ?? 0);
+    const errorCount = Number(t?.error_count ?? 0);
+
+    const toEndpointStat = (row: {
+      endpoint: string;
+      count: string;
+      avg_duration_ms: string;
+      error_count: string;
+    }): AdminLogEndpointStat => ({
+      endpoint: row.endpoint,
+      count: Number(row.count),
+      avgDurationMs: Math.round(Number(row.avg_duration_ms)),
+      errorCount: Number(row.error_count),
+    });
+
+    return {
+      period,
+      total,
+      successCount: Number(t?.success_count ?? 0),
+      errorCount,
+      errorRate: total > 0 ? Math.round((errorCount / total) * 1000) / 1000 : null,
+      avgDurationMs: t?.avg_duration_ms == null ? null : Math.round(Number(t.avg_duration_ms)),
+      p95DurationMs: t?.p95_duration_ms == null ? null : Math.round(Number(t.p95_duration_ms)),
+      topSlowestEndpoints: topSlowest.rows.map(toEndpointStat),
+      topErrorEndpoints: topErrors.rows.map(toEndpointStat),
+      perPoint: series.rows.map((row) => ({
+        point: new Date(row.point).toISOString(),
+        total: Number(row.total),
+        errors: Number(row.errors),
+      })),
+    };
   }
 }
 
