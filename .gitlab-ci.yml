@@ -74,6 +74,11 @@ mirror-to-github:
   stage: mirror
   only:
     - develop
+  variables:
+    # GitLab по умолчанию делает shallow-клон (--depth 20): thin-pack из такого
+    # клона при push на GitHub ссылается на дельта-базы за пределами окна
+    # ("remote unpack failed: did not receive expected object") — нужен полный клон.
+    GIT_DEPTH: 0
   before_script:
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY_MIRROR" > ~/.ssh/id_ed25519
@@ -82,4 +87,5 @@ mirror-to-github:
     - git remote add github git@github.com:VladAvseev/my-budget-server.git
   script:
     # --force: зеркало однонаправленное (GitLab → GitHub), расходимость перезаписываем
-    - git push --force github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"
+    # --no-thin: самодостаточный пак, без внешних дельта-баз на стороне GitHub
+    - git push --no-thin --force github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"
