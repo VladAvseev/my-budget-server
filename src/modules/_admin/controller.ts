@@ -37,6 +37,26 @@ export class AdminController {
     }
   }
 
+  /** GET /admin/dashboard/storage-breakdown → 200: { databaseBytes, tables[] }. */
+  async getStorageBreakdown(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const breakdown = await adminService.getStorageBreakdown();
+      res.status(200).json({ data: breakdown });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** DELETE /admin/users/:userId → 204: удаление пользователя со всеми данными. */
+  async deleteUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      await adminService.deleteUser(req.user!.id, req.params.userId);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /** GET /admin/users → 200: список пользователей со статистикой. */
   async listUsers(_req: Request, res: Response, next: NextFunction) {
     try {

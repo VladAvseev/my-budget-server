@@ -23,11 +23,21 @@ adminRouter.get('/dashboard/operations-dynamics', adminController.getOperationsD
 // useAdminDatabaseSize): размер базы данных. Карточка размера на дашборде.
 adminRouter.get('/dashboard/database-size', adminController.getDatabaseSize);
 
+// GET /admin/dashboard/storage-breakdown — общий размер БД + разбивка по
+// таблицам схемы public (pg_total_relation_size, по убыванию веса). Карточка
+// «Хранилище» на дашборде.
+adminRouter.get('/dashboard/storage-breakdown', adminController.getStorageBreakdown);
+
 // GET /admin/users — RPC admin_get_users (хук useAdminUsers): список всех
 // пользователей со статистикой (email, активность, онбординг, количество
 // отчётов/операций/категорий/накоплений/целей). Таблица страницы
 // «Пользователи» админ-панели.
 adminRouter.get('/users', adminController.listUsers);
+
+// DELETE /admin/users/:userId — физическое удаление пользователя (данные
+// снимаются каскадом БД). Кнопка «Удалить» в таблице страницы «Пользователи»
+// с подтверждением вводом email. Удалить себя сервер не даёт (400).
+adminRouter.delete('/users/:userId', adminController.deleteUser);
 
 // GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&page=1&limit=50 —
 // трассировка HTTP-запросов из request_logs (пишет requestLoggingMiddleware).

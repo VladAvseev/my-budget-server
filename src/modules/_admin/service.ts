@@ -1,4 +1,5 @@
 import { AppError } from '@/shared/appError.js';
+import { requireUuid } from '@/shared/validate.js';
 import { adminRepository } from './repository.js';
 import type {
   AdminDashboardStats,
@@ -10,6 +11,7 @@ import type {
   LogsPeriod,
   LogsStatusFilter,
   LogsUserFilter,
+  StorageBreakdown,
 } from './types.js';
 
 /**
@@ -32,6 +34,26 @@ export class AdminService {
 
   async getDatabaseSize(): Promise<DatabaseSize> {
     return adminRepository.getDatabaseSize();
+  }
+
+  async getStorageBreakdown(): Promise<StorageBreakdown> {
+    return adminRepository.getStorageBreakdown();
+  }
+
+  /**
+   * Удаление пользователя администратором. Своё удаление запрещено (400), чтобы
+   * админ не остался без доступа к панели; несуществующий id → 404. Все данные
+   * пользователя серверная БД снимает каскадом.
+   */
+  async deleteUser(currentUserId: string, targetUserId: unknown): Promise<void> {
+    const userId = requireUuid(targetUserId);
+    if (currentUserId.toLowerCase() === userId.toLowerCase()) {
+      throw new AppError('Нельзя удалить собственный аккаунт', 400);
+    }
+    const deleted = await adminRepository.deleteUser(userId);
+    if (!deleted) {
+      throw new AppError('Пользователь не найден', 404);
+    }
   }
 
   async listUsers(): Promise<AdminUserRow[]> {

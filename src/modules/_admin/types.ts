@@ -64,6 +64,23 @@ export interface DatabaseSize {
   sizePretty: string;
 }
 
+/** Размер одной таблицы БД, байты (pg_total_relation_size: данные + индексы + TOAST). */
+export interface TableStorageSize {
+  name: string;
+  sizeBytes: number;
+}
+
+/**
+ * Ответ GET /admin/dashboard/storage-breakdown: общий размер текущей БД
+ * (pg_database_size) и разбивка по всем базовым таблицам схемы public.
+ * Долю «остальных данных» (служебное пространство СУБД) клиент считает сам
+ * как databaseBytes минус сумма размеров таблиц.
+ */
+export interface StorageBreakdown {
+  databaseBytes: number;
+  tables: TableStorageSize[];
+}
+
 /**
  * Строка таблицы пользователей админки (admin_get_users). Ключи смешанные
  * (user_id/last_active_at в snake_case, счётчики в camelCase) — оставлены
@@ -97,9 +114,7 @@ export type LogsStatusFilter = 'all' | 'success' | 'error';
  *   * user      — запросы конкретного пользователя.
  */
 export type LogsUserFilter =
-  | { kind: 'all' }
-  | { kind: 'anonymous' }
-  | { kind: 'user'; userId: string };
+  { kind: 'all' } | { kind: 'anonymous' } | { kind: 'user'; userId: string };
 
 /** Период агрегации метрик. */
 export type LogsPeriod = '24h' | '7d' | '30d' | 'all';

@@ -10,6 +10,7 @@ import type {
   LogsPeriod,
   LogsStatusFilter,
   LogsUserFilter,
+  StorageBreakdown,
 } from './types.js';
 
 /**
@@ -112,6 +113,47 @@ export class AdminRepository {
               pg_size_pretty(pg_database_size(current_database())) AS size_pretty`,
     );
     return { sizeBytes: Number(rows[0].size_bytes), sizePretty: rows[0].size_pretty };
+  }
+
+  /**
+   * Разбивка хранения: общий размер текущей БД + размер каждой базовой таблицы
+   * схемы public (pg_total_relation_size — данные + индексы + TOAST), по
+   * убыванию веса. «Остальные данные» (служебное пространство СУБД) — разница
+   * databaseBytes и суммы таблиц, считает клиент.
+   */
+  async getStorageBreakdown(): Promise<StorageBreakdown> {
+    const [databaseResult, tablesResult] = await Promise.all([
+      pool.query<{ database_bytes: string }>(
+        `SELECT pg_database_size(current_database()) AS database_bytes`,
+      ),
+      pool.query<{ name: string; size_bytes: string }>(
+        `SELECT c.relname AS name, pg_total_relation_size(c.oid) AS size_bytes
+           FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind = 'r'
+          ORDER BY pg_total_relation_size(c.oid) DESC`,
+      ),
+    ]);
+
+    return {
+      databaseBytes: Number(databaseResult.rows[0]?.database_bytes ?? 0),
+      tables: tablesResult.rows.map((row) => ({
+        name: row.name,
+        sizeBytes: Number(row.size_bytes),
+      })),
+    };
+  }
+
+  /**
+   * Физическое удаление пользователя: на схеме public все доменные таблицы
+   * (reports, operations, categories, accumulations, goals) отваливаются каскадом
+   * (on delete cascade), а request_logs.user_id обнуляется (set null). Возвращает
+   * true, если строка существовала.
+   */
+  async deleteUser(userId: string): Promise<boolean> {
+    const { rowCount } = await pool.query('DELETE FROM public.users WHERE id = $1', [userId]);
+    return (rowCount ?? 0) > 0;
   }
 
   /**
@@ -263,7 +305,8 @@ export class AdminRepository {
       '7d': '7 days',
       '30d': '30 days',
     };
-    const where = period === 'all' ? '' : `WHERE created_at >= now() - interval '${intervalMap[period]}'`;
+    const where =
+      period === 'all' ? '' : `WHERE created_at >= now() - interval '${intervalMap[period]}'`;
     const seriesTrunc = period === '24h' ? 'hour' : 'day';
 
     const totalsQuery = pool.query<{
