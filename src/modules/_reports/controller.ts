@@ -3,8 +3,8 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой отчётов и вложенных ресурсов (summary, category-limits,
- * daily-expenses). Маршруты закрыты `authenticate` в router.ts;
- * user_id из JWT заменяет auth.uid() из RPC-функций Supabase.
+ * daily-expenses). Маршруты закрыты `authenticate` в router.ts, поэтому
+ * id пользователя берётся из проверенного JWT.
  */
 export class ReportsController {
   /** GET /reports → 200: список отчётов пользователя. */

@@ -1,12 +1,9 @@
 /**
  * Типы модуля operations.
  *
- * Порт RPC Supabase: get_operations_by_report / get_operations_by_reports /
- * get_savings_operations / create_operation / update_operation /
- * delete_operation (см. client/src/modules/_reports/_report/api/*.sql и
- * client/src/modules/_accumulations/api/useSavingsOperations.sql).
- * Ответы зеркалят jsonb этих функций (snake_case + camelCase-дополнения
- * вроде reportName), ключи совпадают с доменным типом Operation из клиента.
+ * Ответы — snake_case + camelCase-дополнения вроде reportName: ключи
+ * совпадают с доменным типом Operation из клиента
+ * (см. client/src/shared/api/types/domain.ts).
  */
 
 /** Типы операций — CHECK-констрейнт `operations_type_check` в db/schema.sql. */
@@ -28,7 +25,7 @@ export interface OperationRow {
   updated_at: Date;
 }
 
-/** Ответ API — копия jsonb_build_object из get_operations_by_report. */
+/** Ответ API с операцией. */
 export interface OperationDto {
   id: string;
   report_id: string;
@@ -43,8 +40,8 @@ export interface OperationDto {
 }
 
 /**
- * Ответ get_savings_operations: та же операция + поля отчёта (reportName,
- * reportPeriodStart) — camelCase-ключи сохранены как в историческом RPC,
+ * Пополнения/снятия накоплений: та же операция + поля отчёта (reportName,
+ * reportPeriodStart) — camelCase-ключи исторические,
  * на них завязан клиентский AccumulationsCard.
  */
 export interface SavingsOperationDto extends OperationDto {
@@ -53,8 +50,7 @@ export interface SavingsOperationDto extends OperationDto {
 }
 
 /**
- * Ответ get_operations_by_reports — только поля для сводки overview
- * (в RPC id даже не возвращался).
+ * Ответ для сводки overview — только нужные поля, id операции не возвращается.
  */
 export interface OverviewOperationDto {
   report_id: string;
@@ -63,7 +59,7 @@ export interface OverviewOperationDto {
   category_id: string | null;
 }
 
-/** Доп. поля строки-операции из JOIN с reports (get_savings_operations). */
+/** Доп. поля строки-операции из JOIN с reports. */
 export interface SavingsOperationRow extends OperationRow {
   report_name: string;
   report_period_start: string | null;
@@ -81,9 +77,8 @@ export interface CreateOperationInput {
 
 /**
  * PATCH /operations/:id — клиентский OperationUpdateInput.
- * В отличие от RPC (где amount/category_id/description затирались всегда,
- * а type/date шли через coalesce), здесь обновляем только переданные поля:
- * REST-семантика PATCH, случайный null из запроса больше не стирает данные.
+ * Обновляются только переданные поля (REST-семантика PATCH):
+ * случайный null из запроса не стирает данные.
  */
 export interface UpdateOperationInput {
   amount?: number;

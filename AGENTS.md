@@ -3,7 +3,8 @@
 ## О проекте
 
 REST-бэкенд приложения my-budget: Express + TypeScript + PostgreSQL. Модули в
-`src/modules/_*`-port'ируют RPC-функции прежнего Supabase-бэкенда и обслуживают
+`src/modules/_*` повторяют контракты прежнего RPC-бэкенда (формы ответов
+зеркальные, чтобы клиент при переезде не менялся) и обслуживают
 фронтенд `client/` (тот ходит на `/api/v1` через `src/shared/api/http.ts`).
 
 ## Деплой и инфраструктура
@@ -19,13 +20,20 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
   и вставить содержимое файла (либо `-f - < db/migrations/<file>.sql`).
 - CI (`.gitlab-ci.yml`): build+lint+typecheck, job `deploy-api` (активен после
   заведения `DEPLOY_SSH_KEY` в Variables), зеркало в GitHub.
-- Миграция данных из Supabase: `db/migrate-from-supabase.mjs` читает источник
-  через его REST/GoTrue API (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
-  secret-ключ обязателен — RLS с анонимным ключом вернул бы пустые таблицы);
-  хэши паролей через API не доступны, поэтому пользователям выдаются
-  временные пароли (печатаются в отчёте `--yes`). Запуск:
-  `docker compose run --rm --no-deps -e SUPABASE_URL=... -e SUPABASE_SERVICE_ROLE_KEY=... api node db/migrate-from-supabase.mjs --dry-run`,
-  затем с `--yes`.
+
+## Схема и данные
+
+- Единственный источник данных — собственный PostgreSQL (`db/schema.sql`).
+  Внешних бэкендов и синхронизации с ними нет.
+- Правки живой базы — только идемпотентными файлами `db/migrations/*.sql`
+  (исторические грабли, которые они чинят, описаны в их шапках).
+- `users.last_active_at` — отметка активности: её двигает
+  `src/middlewares/authMiddleware.ts` на каждом авторизованном запросе
+  (не чаще раза в 15 минут). Триггера на вставку операций в схеме нет
+  сознательно: он портил дату при пакетной загрузке исторических операций.
+  Активность пользователей, не заходивших с момента переноса базы,
+  выставлена в дату регистрации (см.
+  `db/migrations/2026-09-11-reset-last-active-to-created-at.sql`).
 
 ## Стек
 
@@ -112,16 +120,16 @@ src/
 - **Path alias:** `@/` → `./src/` (настроен в `tsconfig.json`)
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
 - **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
-  в таблицу `public.request_logs` (схема — `db/schema.sql`): метод/путь/query,
-  статус, длительность, текст ошибки, user_id/is_authenticated/ip/user-agent. Автор — из
+  в таблицу `public.request_logs` (схема — `db/schema.sql`): дата/время, метод,
+  путь, статус, длительность, текст ошибки, user_id/is_authenticated, ip. Автор — из
   `req.user`, который заполняет `authenticate`; пишется в `res.on('finish')`,
-  поэтому к этому моменту уже известна роль. `is_authenticated` фиксирует факт
+  поэтому к этому моменту уже известен статус. `is_authenticated` фиксирует факт
   авторизации на момент запроса и отличается от `user_id is null` (после
   `on delete set null` строки удалённого юзера остались бы «без авторизации»).
-  Тела запроса и ответа в базу НЕ сохраняются — они занимали основной объём
-  таблицы; текст ошибки извлекается на лету из envelope `{ error: { message } }`.
-  Query маскируется (`password`, `newPassword`, `refreshToken` → `'***'`),
-  урезается до 4 КБ; UUID- и числовые сегменты пути пишутся как `:id`
+  Тела запроса и ответа, query и User-Agent в базу НЕ пишутся — они занимали
+  основной объём таблицы и светили данные; текст ошибки извлекается на лету из
+  envelope `{ error: { message } }` и сохраняется только для статусов >= 400
+  (обрезается до 512 символов). UUID- и числовые сегменты пути пишутся как `:id`
   (`/api/v1/reports/:id`) — иначе метрики топов группировали бы каждый id
   отдельно; `/health` и вся админ-панель (`/api/v1/admin/*`) не
   логируются; вставка fire-and-forget. Env:
@@ -131,7 +139,8 @@ src/
   `userId=anonymous` — только запросы без авторизации; сортировка
   `sort=date|duration` + `order=asc|desc`, по умолчанию свежие сверху),
   `GET /admin/logs/metrics`
-  (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`).
+  (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`;
+  строка с ошибкой раскрывается по клику и показывает текст ошибки).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
 - **Конфигурация:** `.env` файл (не `.env.example`)

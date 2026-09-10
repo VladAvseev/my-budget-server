@@ -4,24 +4,24 @@ import { accumulationsController } from './controller.js';
 
 export const accumulationsRouter = Router();
 
-// Все маршруты требуют Bearer access-токен: замена RLS Supabase.
+// Все маршруты требуют Bearer access-токен: накопления видны только владельцу.
 accumulationsRouter.use(authenticate);
 
-// GET /accumulations — RPC get_accumulations (хук useAccumulations): список
+// GET /accumulations (хук useAccumulations): список
 // накоплений пользователя (новые сверху). Страница «Накопления»
 // (AccumulationsList, GoalsSection), глобальный баланс (useGlobalBalance).
 accumulationsRouter.get('/', accumulationsController.list);
 
-// POST /accumulations — RPC create_accumulation (хук useCreateAccumulation):
+// POST /accumulations (хук useCreateAccumulation):
 // добавление накопления из модалки CreateAccumulationModal
 // (сумма, описание, savings-категория).
 accumulationsRouter.post('/', accumulationsController.create);
 
-// PATCH /accumulations/:id — RPC update_accumulation (хук
+// PATCH /accumulations/:id (хук
 // useUpdateAccumulation): редактирование накопления из модалки
 // EditAccumulationModal.
 accumulationsRouter.patch('/:id', accumulationsController.update);
 
-// DELETE /accumulations/:id — RPC delete_accumulation (хук
+// DELETE /accumulations/:id (хук
 // useRemoveAccumulation): удаление накопления из AccumulationsList.
 accumulationsRouter.delete('/:id', accumulationsController.remove);

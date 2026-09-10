@@ -1,11 +1,8 @@
 /**
- * Типы модуля reports.
+ * Типы модуля reports: строки БД (snake_case) и DTO ответов.
  *
- * Порт RPC Supabase: get_reports / create_report / get_report /
- * update_report / delete_report / get_report_summary / get_category_limits /
- * set_category_limits / create_daily_expense / disable_daily_expenses
- * (см. client/src/modules/_reports/**).
- * Ответы зеркалят jsonb RPC (snake_case-ключи) ради дешёвой миграции клиента.
+ * Ключи ответов — snake_case, как их исторически получал клиент
+ * (см. client/src/modules/_reports/**), чтобы не переписывать хуки и UI.
  */
 
 /** Строка таблицы `reports` как её отдаёт pg (см. db/schema.sql). */
@@ -25,7 +22,7 @@ export interface ReportRow {
   updated_at: Date;
 }
 
-/** Ответ API — копия jsonb_build_object из get_reports/get_report/create_report. */
+/** Ответ API с отчётом. */
 export interface ReportDto {
   id: string;
   user_id: string;
@@ -50,7 +47,7 @@ export interface CategoryLimitRow {
   updated_at: Date;
 }
 
-/** Ответ API — копия jsonb_build_object из get_category_limits/set_category_limits. */
+/** Ответ API с лимитом категории. */
 export interface CategoryLimitDto {
   id: string;
   report_id: string;
@@ -61,13 +58,13 @@ export interface CategoryLimitDto {
   updated_at: string;
 }
 
-/** Элемент тела PUT /reports/:id/category-limits (= p_limits в RPC). */
+/** Элемент тела PUT /reports/:id/category-limits. */
 export interface CategoryLimitItem {
   categoryId: string;
   amount: number;
 }
 
-/** Ответ GET /reports/:id/summary — копия jsonb из get_report_summary. */
+/** Ответ GET /reports/:id/summary. */
 export interface ReportSummary {
   income: number;
   expense: number;

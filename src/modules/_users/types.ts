@@ -1,10 +1,9 @@
 /**
  * Типы модуля users.
  *
- * Пользователь здесь — это то, чем в Supabase были auth.users + profiles
- * (см. db/schema.sql: обе таблицы слиты в одну `public.users`).
- * Клиентские аналоги: Profile в client/src/shared/supabase/types/domain.ts
- * и get_or_create_profile в useProfile.sql.
+ * Аккаунт и профиль живут в одной таблице `public.users` (см. db/schema.sql):
+ * роль, стартовый баланс, валюта и отметка активности — её колонки.
+ * Формы ответов совпадают с тем, что клиент получал от прежнего бэкенда.
  */
 
 /** Строка таблицы `users` ровно как её отдаёт postgres (snake_case, numeric — строкой). */
@@ -25,7 +24,7 @@ export interface UserRow {
 
 /**
  * Публичное представление пользователя в API-ответах: без password_hash,
- * в camelCase (так же клиент получал jsonb из RPC Supabase).
+ * в camelCase (так же клиент получал данные от прежнего бэкенда).
  */
 export interface PublicUser {
   id: string;
@@ -40,10 +39,10 @@ export interface PublicUser {
 }
 
 /**
- * Тело PATCH /users/me. Поля строго whitelisted — email и role
- * изменить нельзя (у Supabase email тоже жил отдельно от profiles).
- * Источник полей — StartBalanceCard и OnboardingCard клиента
- * (RPC update_start_balance / update_currency / complete_onboarding).
+ * Тело PATCH /users/me. Поля строго whitelisted: меняются только стартовый
+ * баланс, валюта и флаг онбординга — email и роль через этот эндпоинт
+ * изменить нельзя.
+ * Источник полей — StartBalanceCard и OnboardingCard клиента.
  */
 export interface UpdateProfileInput {
   startBalance?: number;

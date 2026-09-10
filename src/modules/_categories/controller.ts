@@ -3,8 +3,8 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой категорий. Все маршруты закрыты `authenticate` в router.ts,
- * поэтому `req.user.id` (замена auth.uid() из RPC) здесь гарантированно есть.
- * Ответы — в обёртке `{ data }`, зеркало jsonb-ответов RPC Supabase.
+ * поэтому `req.user.id` здесь гарантированно есть.
+ * Ответы — в обёртке `{ data }`, как ожидает клиентский http-слой.
  */
 export class CategoriesController {
   /** GET /categories?type={income|expense|savings} → 200: CategoryDto[]. */

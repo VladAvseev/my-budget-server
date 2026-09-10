@@ -3,9 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой профиля. Все маршруты модуля закрыты `authenticate` в router.ts,
- * поэтому `req.user` здесь гарантированно заполнен (id из проверенного JWT).
- * Это замена RLS из Supabase: вместо политики `auth.uid() = user_id`
- * каждый запрос работает строго с id своего пользователя.
+ * поэтому `req.user` здесь гарантированно заполнен (id из проверенного JWT):
+ * каждый запрос работает строго с id своего пользователя, доступ к чужим
+ * строкам исключён на уровне сервера.
  */
 export class UsersController {
   /** GET /users/me → 200: профиль (email, роль, баланс, валюта, onboarded, даты). */

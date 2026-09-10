@@ -5,12 +5,11 @@ import type { CategoryDto, CategoryRow, CategoryType, UpdateCategoryInput } from
 /**
  * Слой доступа к данным категорий.
  *
- * В Supabase это были RPC-функции, где принадлежность строки пользователю
- * обеспечивалась RLS-политиками (`user_id = auth.uid()`). Здесь вместо RLS
- * каждый SELECT/UPDATE/DELETE явно фильтруется по user_id из JWT.
+ * Принадлежность строк пользователю обеспечивает сам сервер:
+ * каждый SELECT/UPDATE/DELETE явно фильтруется по user_id из проверенного JWT.
  */
 
-/** Строка БД → jsonb-подобный DTO (зеркало jsonb_build_object из RPC). */
+/** Строка БД → DTO ответа. */
 export function toCategoryDto(row: CategoryRow): CategoryDto {
   return {
     id: row.id,
@@ -25,8 +24,8 @@ export function toCategoryDto(row: CategoryRow): CategoryDto {
 
 export class CategoriesRepository {
   /**
-   * Порт get_categories: категории пользователя, опционально по типу,
-   * `order by created_at` (старые сверху — исторический порядок RPC).
+   * Категории пользователя, опционально по типу, `order by created_at`
+   * (старые сверху — порядок, к которому привык клиент).
    */
   async list(userId: string, type?: CategoryType): Promise<CategoryRow[]> {
     const { rows } = type
@@ -45,7 +44,7 @@ export class CategoriesRepository {
     return rows;
   }
 
-  /** Порт create_category: вставка с user_id из токена (вместо auth.uid()). */
+  /** Создание категории: user_id берётся из проверенного токена. */
   async create(
     userId: string,
     type: CategoryType,
@@ -106,7 +105,7 @@ export class CategoriesRepository {
     return rows[0] ?? null;
   }
 
-  /** Порт delete_category с ownership-фильтром; rowCount=0 → чужой/несуществующий id. */
+  /** Удаление категории с ownership-фильтром; rowCount=0 → чужой/несуществующий id. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.categories WHERE id = $1 AND user_id = $2',
@@ -117,8 +116,7 @@ export class CategoriesRepository {
 
   /**
    * Проверка «эта категория — моя (и, опционально, нужного типа)» — общий
-   * хелпер для _operations/_accumulations/_goals: в Supabase такой фильтр
-   * обеспечивал RLS на таблицы+политики select, на сервере он явный.
+   * хелпер для _operations/_accumulations/_goals: на сервере фильтр явный.
    */
   async isOwned(userId: string, categoryId: string, type?: CategoryType): Promise<boolean> {
     const { rows } = type

@@ -4,12 +4,9 @@ import type { OnboardingState, PublicUser, UpdateProfileInput, UserSummary } fro
 
 /**
  * Бизнес-логика профиля пользователя.
- * Заменяет клиентские RPC Supabase: get_or_create_profile,
- * update_start_balance / update_currency / complete_onboarding,
- * get_onboarding_state, get_user_summary.
- * «Or create» из get_or_create_profile здесь не нужен — строку пользователя
- * гарантирует модуль auth (регистрация делает INSERT), поэтому GET /users/me
- * просто читает; если строки нет — значит токен от удалённого аккаунта (404).
+ * Строку пользователя гарантирует модуль auth (регистрация делает INSERT),
+ * поэтому GET /users/me просто читает; если строки нет — значит токен от
+ * удалённого аккаунта (404).
  */
 export class UsersService {
   async getMe(userId: string): Promise<PublicUser> {

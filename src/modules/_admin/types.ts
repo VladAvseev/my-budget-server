@@ -1,14 +1,12 @@
 /**
- * Типы модуля admin — порт RPC admin_get_dashboard_stats /
- * admin_get_operations_dynamics / admin_get_database_size / admin_get_users
- * (см. client/src/modules/_admin/**).
+ * Типы модуля admin: сводки дашборда, динамика операций, размер БД,
+ * список пользователей, логи запросов.
  * Ключи соответствуют доменным типам клиента (AdminDashboardStats,
- * AdminUserRow, DatabaseSize из client/src/shared/supabase/types/domain.ts),
- * чтобы админ-панель при миграции не менялась.
+ * AdminUserRow, DatabaseSize в client/src/shared/api/types/domain.ts),
+ * чтобы админ-панель не менялась.
  *
- * Права: в Supabase каждую RPC-функцию охраняла проверка is_admin()
- * (raise exception 'Доступ запрещён'); на сервере её выполняет middleware
- * requireAdmin (authenticate + JWT-claim role) в router.ts.
+ * Права: доступ к маршрутам даёт middleware requireAdmin
+ * (authenticate + JWT-claim role) в router.ts.
  */
 
 /** Ответ GET /admin/dashboard/stats — структура admin_get_dashboard_stats. */
@@ -46,14 +44,14 @@ export interface AdminDashboardStats {
     income: number;
     expense: number;
     daily: number;
-    /** savings и savings_out считаются вместе — как в RPC. */
+    /** savings и savings_out считаются вместе. */
     savings: number;
   };
 }
 
 /** Одна точка графика динамики (admin_get_operations_dynamics). */
 export interface AdminDynamicsRow {
-  /** Ключ day/operations_count — имена колонок returns-table RPC. */
+  /** Ключ day/operations_count — имена колонок запроса, возвращающего таблицу. */
   day: string;
   operations_count: number;
 }
@@ -82,9 +80,9 @@ export interface StorageBreakdown {
 }
 
 /**
- * Строка таблицы пользователей админки (admin_get_users). Ключи смешанные
- * (user_id/last_active_at в snake_case, счётчики в camelCase) — оставлены
- * как в jsonb исторического RPC: клиентский AdminUserRow такой же.
+ * Строка таблицы пользователей админки. Ключи смешанные
+ * (user_id/last_active_at в snake_case, счётчики в camelCase) — их ожидает
+ * клиентский AdminUserRow.
  */
 export interface AdminUserRow {
   user_id: string;
@@ -132,9 +130,9 @@ export interface AdminLogRow {
   createdAt: string;
   method: string;
   path: string;
-  query: unknown | null;
   status: number;
   durationMs: number;
+  /** Текст ошибки для ответов с статусом >= 400; null — запрос успешный. */
   error: string | null;
   /** Автор запроса; null — запрос без авторизации (или пользователь удалён). */
   userId: string | null;
@@ -143,7 +141,6 @@ export interface AdminLogRow {
   /** true — на момент запроса был валидный access-токен (см. is_authenticated). */
   isAuthenticated: boolean;
   ip: string | null;
-  userAgent: string | null;
 }
 
 /** Ответ GET /admin/logs — страница + пагинация. */

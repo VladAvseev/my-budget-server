@@ -1,15 +1,15 @@
 /**
  * Токены авторизации.
  *
- * Схема такая же, как в Supabase Auth (GoTrue), где клиент получает пару:
+ * Клиент получает пару:
  *   * access-токен  — короткоживущий JWT, кладётся в `Authorization: Bearer ...`
- *                     на каждый запрос к API (у Supabase по умолчанию живёт 1 час);
+ *                     на каждый запрос к API (живёт 1 час);
  *   * refresh-токен — длинная opaque-строка (30 дней), клиент обменивает её
  *                     на новую пару через POST /auth/refresh (ротация: старый
- *                     токен одноразовый, как в Supabase с enabled rotation).
+ *                     токен одноразовый).
  *
- * Клиент (React) вместо supabase-js будет сам хранить эту пару в localStorage
- * и обновлять её по истечении access-токена — аналог persistSession/autoRefreshToken.
+ * Пару хранит сам клиент (React) в localStorage и обновляет по истечении
+ * access-токена — см. client/src/shared/api/http.ts.
  */
 import 'dotenv/config';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
@@ -23,10 +23,10 @@ import { randomBytes, createHash } from 'node:crypto';
  */
 const secretKey = new TextEncoder().encode(process.env.JWT_SECRET);
 
-/** Время жизни access-токена. Зеркалит дефолт Supabase (3600 с). */
+/** Время жизни access-токена; клиенту отдаётся секундами в `expiresIn`. */
 export const ACCESS_TOKEN_TTL = '1h';
 
-/** Время жизни refresh-токена в сутках. То же значение по умолчанию в GoTrue. */
+/** Время жизни refresh-токена в сутках. */
 export const REFRESH_TOKEN_TTL_DAYS = 30;
 
 /** Полезная нагрузка access-токена: стандартный `sub` (id юзера) + роль. */

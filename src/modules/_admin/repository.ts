@@ -18,17 +18,16 @@ import type {
 /**
  * Слой доступа к данным админ-панели.
  *
- * Отличия от Supabase-реализации (client/src/modules/_admin/**.sql):
- *   * вместо is_admin() внутри функций — middleware requireAdmin (роль из JWT);
- *   * вместо таблиц auth.users + profiles — единая таблица public.users
- *     (user_id → id, поля email/onboarded/last_active_at те же);
- *   * размер считаем от current_database(): сервер работает с одной БД,
- *     а исторический SUM() по всем базам кластера — артефакт Supabase.
+ * Особенности:
+ *   * права проверяет middleware requireAdmin (роль из JWT), а не SQL-функции;
+ *   * все данные — из единой таблицы public.users (user_id → id);
+ *   * размер БД считаем от current_database(): сервер работает с одной базой,
+ *     суммирование по всем базам кластера бессмысленно.
  */
 export class AdminRepository {
   /**
-   * Порт admin_get_dashboard_stats: один запрос, сборка отчёта
-   * jsonb_build_object'ом ровно как в RPC — TS-тип описывает результат.
+   * Сводка дашборда одним запросом: отчёт собирается jsonb_build_object'ом,
+   * ровно в той форме, которую ожидает клиент (TS-тип описывает результат).
    */
   async getStats(): Promise<AdminDashboardStats> {
     const { rows } = await pool.query<{ data: AdminDashboardStats }>(
@@ -91,9 +90,9 @@ export class AdminRepository {
   }
 
   /**
-   * Порт admin_get_operations_dynamics: количество операций по дням.
+   * Количество операций по дням.
    * created_at переводим в московское время до группировки — сутки графика
-   * считаются по МСК (привычка клиента со времён RPC).
+   * считаются по МСК (график клиента построен на этом часовом поясе).
    */
   async getOperationsDynamics(): Promise<AdminDynamicsRow[]> {
     const { rows } = await pool.query<{ day: string; operations_count: string }>(
@@ -108,7 +107,7 @@ export class AdminRepository {
     return rows.map((row) => ({ day: row.day, operations_count: Number(row.operations_count) }));
   }
 
-  /** Порт admin_get_database_size для текущей базы сервера. */
+  /** Размер текущей базы сервера. */
   async getDatabaseSize(): Promise<DatabaseSize> {
     const { rows } = await pool.query<{ size_bytes: string; size_pretty: string }>(
       `SELECT pg_database_size(current_database()) AS size_bytes,
@@ -159,7 +158,7 @@ export class AdminRepository {
   }
 
   /**
-   * Порт admin_get_users: все пользователи со статистикой количества
+   * Все пользователи со статистикой количества
    * сущностей (LEFT JOIN счётчиков, чтобы нули не терялись).
    */
   async listUsers(): Promise<AdminUserRow[]> {
@@ -254,7 +253,6 @@ export class AdminRepository {
       created_at: string;
       method: string;
       path: string;
-      query: unknown;
       status: number;
       duration_ms: number;
       error: string | null;
@@ -262,11 +260,10 @@ export class AdminRepository {
       is_authenticated: boolean;
       user_email: string | null;
       ip: string | null;
-      user_agent: string | null;
     }>(
-      `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.query, rl.status,
+      `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.status,
               rl.duration_ms, rl.error, rl.user_id, rl.is_authenticated,
-              u.email AS user_email, host(rl.ip) AS ip, rl.user_agent
+              u.email AS user_email, host(rl.ip) AS ip
        FROM public.request_logs rl
        LEFT JOIN public.users u ON u.id = rl.user_id
        ${where}
@@ -281,7 +278,6 @@ export class AdminRepository {
         createdAt: row.created_at,
         method: row.method,
         path: row.path,
-        query: row.query,
         status: row.status,
         durationMs: row.duration_ms,
         error: row.error,
@@ -289,7 +285,6 @@ export class AdminRepository {
         userEmail: row.user_email,
         isAuthenticated: row.is_authenticated,
         ip: row.ip,
-        userAgent: row.user_agent,
       })),
       total: Number(countRows[0]?.count ?? 0),
       page,

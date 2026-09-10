@@ -10,11 +10,9 @@ import { CATEGORY_TYPES } from './types.js';
 import type { CategoryDto, CategoryType } from './types.js';
 
 /**
- * Бизнес-логика категорий — порт RPC create_category / update_category /
- * delete_category. В самих RPC проверок почти не было (их закрывал RLS:
- * нельзя было создать категорию с чужим user_id или изменить чужую), поэтому
- * на сервере проверки переезжают сюда (формат полей) и в репозиторий
- * (фильтр `user_id = $me` в каждом запросе).
+ * Бизнес-логика категорий: создание, обновление и удаление.
+ * Проверки формата полей — здесь, принадлежность строк владельцу —
+ * в репозитории (фильтр `user_id = $me` в каждом запросе).
  */
 export class CategoriesService {
   /** GET /categories?type= — список своих категорий, опциональная фильтрация по типу. */
@@ -57,7 +55,7 @@ export class CategoriesService {
 
     const row = await categoriesRepository.update(categoryId, userId, input);
     if (!row) {
-      // В Supabase при RLS update молча не находил строку; здесь отвечаем 404.
+      // update с ownership-фильтром не нашёл строку — отвечаем 404.
       throw new AppError('Категория не найдена', 404);
     }
     return toCategoryDto(row);

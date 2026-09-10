@@ -1,10 +1,8 @@
 /**
  * Типы модуля accumulations.
  *
- * Порт RPC Supabase: get_accumulations / create_accumulation /
- * update_accumulation / delete_accumulation
- * (см. client/src/shared/hooks/useAccumulations.sql и
- * client/src/modules/_accumulations/api/*.sql).
+ * Ответы — со snake_case-ключами, как их исторически получал клиент
+ * (см. client/src/shared/api/types/domain.ts).
  */
 
 /** Строка таблицы `accumulations` как её отдаёт pg. */
@@ -20,7 +18,7 @@ export interface AccumulationRow {
   updated_at: Date;
 }
 
-/** Ответ API — копия jsonb_build_object из get_accumulations. */
+/** Ответ API с накоплением. */
 export interface AccumulationDto {
   id: string;
   user_id: string;

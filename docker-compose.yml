@@ -27,8 +27,9 @@ services:
       # Данные живут в именованном volume и переживают пересоздание контейнера
       - pgdata:/var/lib/postgresql/data
       # schema.sql применяется автоматически при ПЕРВОМ старте (пустой volume).
-      # Последующие правки схемы — руками через psql (как SQL-редактор Supabase)
-      # и обновлением db/schema.sql для будущих свежих установок.
+      # Последующие правки схемы — идемпотентными файлами из db/migrations/
+      # через psql (см. server/AGENTS.md) и обновлением db/schema.sql для
+      # будущих свежих установок.
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       # api стартует только после реальной готовности postgres, а не контейнера

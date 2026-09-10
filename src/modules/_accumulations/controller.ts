@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой накоплений. Маршруты закрыты `authenticate` в router.ts —
- * доступ к чужим строкам отсекает фильтр user_id в репозитории (аналог RLS).
+ * доступ к чужим строкам отсекает фильтр user_id в репозитории.
  */
 export class AccumulationsController {
   /** GET /accumulations → 200: список накоплений (новые сверху). */

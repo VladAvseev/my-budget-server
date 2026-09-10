@@ -17,13 +17,13 @@ import type {
 import type { UserRow } from '@/modules/_users/types.js';
 
 /**
- * Бизнес-логика авторизации — серверный двойник Supabase GoTrue в упрощённом
- * виде: email+password, JWT-сессия с refresh-ротацией. Клиентские вызовы
+ * Бизнес-логика авторизации: email+password, JWT-сессия с refresh-ротацией.
+ * Клиентские вызовы прежнего auth-сервиса
  * signUp/signInWithPassword/refreshSession/signOut/updateUser({password})
  * превращаются в register/login/refresh/logout/updatePassword ниже.
  */
 
-/** Стоимость bcrypt; 10 — стандарт GoTrue/Supabase. */
+/** Стоимость bcrypt: 10 раундов — разумный дефолт для интерактивного входа. */
 const BCRYPT_ROUNDS = 10;
 
 /**
@@ -73,9 +73,8 @@ function validateCredentials(email: unknown, password: unknown): asserts email i
 
 export class AuthService {
   /**
-   * Регистрация. В Supabase signUp при включённом email-confirmation не выдавал
-   * сессию, но подтверждения у нас нет (нет email-инфраструктуры) — сразу
-   * логиним пользователя, как при отключённом confirm.
+   * Регистрация: подтверждения email нет (нет email-инфраструктуры), поэтому
+   * сразу логиним пользователя и выдаём пару токенов.
    */
   async register(input: CredentialsInput, meta: RequestMeta): Promise<SessionResponse> {
     validateCredentials(input.email, input.password);
@@ -87,7 +86,7 @@ export class AuthService {
       user = await authRepository.createUser(input.email, passwordHash);
     } catch (err) {
       // 23505 — unique_violation на индексе users.email: тот же смысл,
-      // что 'User already registered' у GoTrue (см. errorMessage.ts клиента).
+      // что 'User already registered' у прежнего auth-сервиса (см. errorMessage.ts клиента).
       if ((err as { code?: string }).code === '23505') {
         throw new AppError('Пользователь с таким email уже зарегистрирован', 409);
       }
@@ -116,9 +115,9 @@ export class AuthService {
 
   /**
    * Обновление сессии по refresh-токену (клиент дергает при истечении access
-   * или получает 401 → refresh → повтор запроса; авто-рефреш supabase-js).
-   * Ротация как в GoTrue: одноразовый токен — старый отзывается, выдаётся новая пара.
-   * Компрометация старого токена из-за этого упирается в 401 «Сессия истекла».
+   * или получает 401 → refresh → повтор запроса; раньше это делал авто-рефреш
+   * клиента). Ротация: токен одноразовый — старый отзывается, выдаётся новая
+   * пара. Компрометация старого токена из-за этого упирается в 401 «Сессия истекла».
    */
   async refresh(refreshToken: unknown, meta: RequestMeta): Promise<SessionResponse> {
     if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
@@ -135,8 +134,8 @@ export class AuthService {
   }
 
   /**
-   * Выход: отзыв текущей сессии (остальные устройства живут — как signOut()
-   * Supabase без scope). Ответ всегда 204, даже если токен неизвестен:
+   * Выход: отзыв текущей сессии (остальные устройства живут — выход по scope
+   * одной сессии). Ответ всегда 204, даже если токен неизвестен:
    * logout идемпотентен, а «уже вышел» — не информация для атакующего.
    */
   async logout(refreshToken: unknown): Promise<void> {
@@ -153,7 +152,7 @@ export class AuthService {
    * Смена пароля внутри сессии (changePassword в клиенте шлёт только newPassword).
    * После смены отзываем ВСЕ refresh-токены пользователя: другие вкладки/устройства
    * будут вынуждены залогиниться заново. Выданный ранее access-JWT доживёт до своего
-   * TTL (1 час) — stateless JWT, та же особенность была у Supabase.
+   * TTL (1 час) — неотъемлемая особенность stateless JWT.
    */
   async updatePassword(userId: string, input: UpdatePasswordInput): Promise<void> {
     if (typeof input.newPassword !== 'string' || input.newPassword.length < MIN_PASSWORD_LENGTH) {

@@ -2,8 +2,7 @@ import type { PublicUser, UserRow } from '@/modules/_users/types.js';
 
 /**
  * Типы модуля auth.
- * Формы запросов повторяют то, что клиент передавал в supabase.auth.*
- * (см. client/src/shared/supabase/services/auth.ts):
+ * Формы запросов повторяют то, что клиент передавал в прежний auth-сервис:
  * signUp / signInWithPassword / refreshSession / signOut / updateUser({password}).
  */
 
@@ -25,8 +24,8 @@ export interface UpdatePasswordInput {
 
 /**
  * Ответ /auth/register, /auth/login, /auth/refresh.
- * Набор тот же, что у Supabase-сессии (access + refresh + срок жизни + user),
- * только в camelCase: Supabase отдавал { access_token, refresh_token, expires_in, user }.
+ * Набор полей прежней auth-сессии (access + refresh + срок жизни + user),
+ * только в camelCase: исторически приходило { access_token, refresh_token, expires_in, user }.
  */
 export interface SessionResponse {
   accessToken: string;

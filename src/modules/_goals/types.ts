@@ -1,9 +1,8 @@
 /**
  * Типы модуля goals (цели накоплений).
  *
- * Порт RPC Supabase: get_goals / create_goal / update_goal / delete_goal
- * (см. client/src/shared/hooks/useGoals.sql и
- * client/src/modules/_accumulations/api/use*Goal.sql).
+ * Ответы — со snake_case-ключами, как их исторически получал клиент
+ * (см. client/src/shared/api/types/domain.ts).
  */
 
 /** Строка таблицы `goals` как её отдаёт pg: одна цель на savings-категорию. */
@@ -18,7 +17,7 @@ export interface GoalRow {
   updated_at: Date;
 }
 
-/** Ответ API — копия jsonb_build_object из get_goals. */
+/** Ответ API с целью. */
 export interface GoalDto {
   id: string;
   user_id: string;

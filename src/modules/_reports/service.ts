@@ -13,34 +13,33 @@ import { reportsRepository, toCategoryLimitDto, toReportDto } from './repository
 import type { CategoryLimitDto, CategoryLimitItem, ReportDto, ReportSummary } from './types.js';
 
 /**
- * Бизнес-логика отчётов — порты RPC create_report / update_report /
- * get_report_summary / set_category_limits / create_daily_expenses и co.
+ * Бизнес-логика отчётов: создание/обновление, сводки, лимиты категорий
+ * и daily-расходы.
  *
- * Тексты ошибок совпадают с raise exception в тех RPC ('Такой период уже
- * существует', 'Нет свободных дат в периоде'), чтобы клиентским хукам
- * не потребовался новый маппинг.
+ * Тексты ошибок исторические ('Такой период уже существует',
+ * 'Нет свободных дат в периоде') — клиент показывает их как есть, без маппинга.
  */
 
 /** Ошибочный ответ «нет отчёта» для чужого id — не раскрываем существование. */
 const NOT_FOUND = 'Отчёт не найден';
 
 export class ReportsService {
-  /** GET /reports → get_reports: свои отчёты, новые (по периоду) сверху. */
+  /** GET /reports: свои отчёты, новые (по периоду) сверху. */
   async list(userId: string): Promise<ReportDto[]> {
     const rows = await reportsRepository.list(userId);
     return rows.map(toReportDto);
   }
 
   /**
-   * POST /reports — порт create_report.
+   * POST /reports.
    * Body (camelCase, как OperationInput/ReportInput клиента):
    * { name, code?, hasDailyExpenses?, dailyBudget?, periodStart?, periodEnd? }.
    */
   async create(userId: string, body: Record<string, unknown>): Promise<ReportDto> {
     const name = requireNonEmptyString(body.name, 'Название отчёта обязательно');
 
-    // Код периода: у RPC был `coalesce(p_code, '')` и проверка дубликата
-    // только для непустого; частичный unique-индекс в схеме — второй эшелон.
+    // Пустой код — «не задан»: проверка дубликата нужна только непустым,
+    // частичный unique-индекс в схеме — второй эшелон.
     const code = typeof body.code === 'string' ? body.code.trim() : '';
 
     const hasDailyExpenses =
@@ -48,7 +47,7 @@ export class ReportsService {
         ? false
         : requireBoolean(body.hasDailyExpenses, 'Некорректный флаг ежедневных расходов');
 
-    // daily_budget сохраняется только при включённом daily-режиме (как CASE в RPC).
+    // daily_budget имеет смысл только при включённом daily-режиме.
     const dailyBudget = hasDailyExpenses
       ? requireAmount(body.dailyBudget, 'Бюджет на день должен быть положительным числом')
       : null;
@@ -85,7 +84,7 @@ export class ReportsService {
     }
   }
 
-  /** GET /reports/:id → get_report (+ RLS): только свой отчёт. */
+  /** GET /reports/:id: только свой отчёт. */
   async getById(userId: string, id: unknown): Promise<ReportDto> {
     const reportId = requireUuid(id);
     const row = await reportsRepository.getById(reportId, userId);
@@ -96,13 +95,13 @@ export class ReportsService {
   }
 
   /**
-   * PATCH /reports/:id — порт update_report с его if/elsif:
-   * либо { name } (переименование), либо { hasDailyExpenses, dailyBudget?,
-   * periodStart?, periodEnd? } (включение/выключение daily-режима).
+   * PATCH /reports/:id: либо { name } (переименование), либо
+   * { hasDailyExpenses, dailyBudget?, periodStart?, periodEnd? }
+   * (включение/выключение daily-режима).
    */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<ReportDto> {
     const reportId = requireUuid(id);
-    // Проверяем владение до модификации (RLS делал это неявно).
+    // Проверяем владение до модификации.
     if (!(await reportsRepository.getById(reportId, userId))) {
       throw new AppError(NOT_FOUND, 404);
     }
@@ -143,7 +142,7 @@ export class ReportsService {
     throw new AppError('Не передано ни одного поля для обновления', 400);
   }
 
-  /** DELETE /reports/:id → 204/404 (порт delete_report). */
+  /** DELETE /reports/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
     const reportId = requireUuid(id);
     const removed = await reportsRepository.remove(reportId, userId);
@@ -152,14 +151,14 @@ export class ReportsService {
     }
   }
 
-  /** GET /reports/:id/summary → get_report_summary (SummaryCards). */
+  /** GET /reports/:id/summary (SummaryCards). */
   async getSummary(userId: string, id: unknown): Promise<ReportSummary> {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);
     return reportsRepository.getSummary(reportId);
   }
 
-  /** GET /reports/:id/category-limits → get_category_limits. */
+  /** GET /reports/:id/category-limits. */
   async getCategoryLimits(userId: string, id: unknown): Promise<CategoryLimitDto[]> {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);
@@ -168,10 +167,10 @@ export class ReportsService {
   }
 
   /**
-   * PUT /reports/:id/category-limits — set_category_limits: полная замена
+   * PUT /reports/:id/category-limits: полная замена
    * списка. Body: { limits: [{ categoryId, amount }] }.
-   * Категория лимита обязана быть своей: в Supabase за это отвечал RLS на
-   * вставку category_limits, здесь — явная проверка до транзакции.
+   * Категория лимита обязана быть своей — это проверяется явно,
+   * до входа в транзакцию.
    */
   async setCategoryLimits(
     userId: string,
@@ -215,10 +214,10 @@ export class ReportsService {
   }
 
   /**
-   * POST /reports/:id/daily-expenses — create_daily_expense.
-   * Период берём из строки отчёта (RPC получал p_period_start/end телом —
-   * клиент и так шлёт то же, что лежит в отчёте; серверу надёжнее верить
-   * своей базе). Вставка — на первую свободную дату периода, как в RPC.
+   * POST /reports/:id/daily-expenses.
+   * Период берём из строки отчёта, а не из тела запроса: клиент шлёт то же,
+   * что уже лежит в базе, а базе верить надёжнее.
+   * Вставка — на первую свободную дату периода.
    */
   async createDailyExpense(
     userId: string,
@@ -243,7 +242,7 @@ export class ReportsService {
       report.period_end,
     );
     if (!freeDate) {
-      // Текст raise exception из RPC — клиент показывает его как есть.
+      // Клиент показывает этот текст как есть.
       throw new AppError('Нет свободных дат в периоде', 400);
     }
 
@@ -257,7 +256,7 @@ export class ReportsService {
     return toOperationDto(row);
   }
 
-  /** DELETE /reports/:id/daily-expenses → 204 (disable_daily_expenses, транзакция). */
+  /** DELETE /reports/:id/daily-expenses → 204 (в одной транзакции). */
   async disableDailyExpenses(userId: string, id: unknown): Promise<void> {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);

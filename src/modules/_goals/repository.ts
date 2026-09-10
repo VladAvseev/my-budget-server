@@ -3,12 +3,12 @@ import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { GoalDto, GoalRow, UpdateGoalInput } from './types.js';
 
 /**
- * Слой доступа к данным целей накоплений
- * (порт get_goals / create_goal / update_goal / delete_goal).
- * В схеме goals имеет unique(user_id, category_id) — «одна цель на категорию».
+ * Слой доступа к данным целей накоплений: список, создание, обновление,
+ * удаление. В схеме goals есть unique(user_id, category_id) — «одна цель
+ * на категорию».
  */
 
-/** Строка БД → jsonb-подобный DTO (зеркало jsonb_build_object из RPC). */
+/** Строка БД → DTO ответа. */
 export function toGoalDto(row: GoalRow): GoalDto {
   return {
     id: row.id,
@@ -82,7 +82,7 @@ export class GoalsRepository {
     return rows[0] ?? null;
   }
 
-  /** delete_goal + ownership-фильтр (аналог RLS). */
+  /** Удаление цели с ownership-фильтром. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.goals WHERE id = $1 AND user_id = $2',

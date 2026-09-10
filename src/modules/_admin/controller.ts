@@ -3,8 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой админ-панели. Все маршруты закрыты authenticate + requireAdmin
- * в router.ts (замена is_admin() из RPC Supabase); req.user здесь гарантированно
- * заполнен и содержит role === 'admin'.
+ * в router.ts: req.user здесь гарантированно заполнен и содержит role === 'admin'.
  */
 export class AdminController {
   /** GET /admin/dashboard/stats → 200: сводка дашборда (AdminDashboardStats). */

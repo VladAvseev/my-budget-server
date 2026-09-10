@@ -4,13 +4,13 @@ import type { UserRow } from '@/modules/_users/types.js';
 
 /**
  * Слой доступа к данным авторизации: таблицы `users` и `refresh_tokens`
- * из db/schema.sql. В Supabase за это отвечала GoTrue (auth.users) и RLS;
- * здесь вся ответственность — на параметризованных SQL-запросах сервера.
+ * из db/schema.sql. Вся ответственность за контроль доступа — на
+ * параметризованных SQL-запросах сервера и middleware авторизации.
  */
 export class AuthRepository {
   /**
-   * Поиск по email. Колонка citext — поиск регистронезависимый,
-   * как в GoTrue: 'Foo@Mail.COM' и 'foo@mail.com' — один пользователь.
+   * Поиск по email. Колонка citext — поиск регистронезависимый:
+   * 'Foo@Mail.COM' и 'foo@mail.com' — один пользователь.
    */
   async findByEmail(email: string): Promise<UserRow | null> {
     const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE email = $1', [
@@ -31,8 +31,8 @@ export class AuthRepository {
   }
 
   /**
-   * Регистрация refresh-токена = создание «сессии» (одна строка = одно устройство),
-   * как устройства в аккаунте Supabase. tokenHash — sha256 от токена, сырой токен
+   * Регистрация refresh-токена = создание «сессии» (одна строка = одно
+   * устройство). tokenHash — sha256 от токена, сырой токен
    * в базу не попадает никогда.
    */
   async insertRefreshToken(

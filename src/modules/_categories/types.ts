@@ -1,10 +1,9 @@
 /**
  * Типы модуля categories.
  *
- * Порт RPC Supabase: get_categories / create_category / update_category /
- * delete_category (см. client/src/modules/_profile/api/*.sql).
- * Ответы зеркалят jsonb этих функций (snake_case-ключи), чтобы миграция
- * клиента свелась к замене URL, а не переименованию полей в UI.
+ * Ответы — со snake_case-ключами, как их исторически ожидает клиент
+ * (см. client/src/shared/api/types/domain.ts), чтобы миграция свелась
+ * к замене URL, а не переименованию полей в UI.
  */
 
 /** Строка таблицы `categories` ровно как её отдаёт pg (см. db/schema.sql). */
@@ -24,8 +23,7 @@ export type CategoryType = 'income' | 'expense' | 'savings';
 export const CATEGORY_TYPES: readonly CategoryType[] = ['income', 'expense', 'savings'];
 
 /**
- * Ответ API — копия jsonb_build_object из get_categories:
- * те же ключи, numeric нет, даты — ISO-строки.
+ * Ответ API с категорией: все ключи строки БД, даты — ISO-строки.
  */
 export interface CategoryDto {
   id: string;

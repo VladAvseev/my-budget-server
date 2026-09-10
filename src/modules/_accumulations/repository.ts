@@ -3,12 +3,11 @@ import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { AccumulationDto, AccumulationRow, UpdateAccumulationInput } from './types.js';
 
 /**
- * Слой доступа к данным накоплений (порт get/create/update/delete_accumulation).
- * В Supabase user_id подставлял auth.uid(), а доступ к чужим строкам отсекал
- * RLS; здесь то же самое делают параметр userId из JWT в каждом запросе.
+ * Слой доступа к данным накоплений: список, создание, обновление, удаление.
+ * Доступ к чужим строкам отсекает параметр userId из JWT в каждом запросе.
  */
 
-/** Строка БД → jsonb-подобный DTO (зеркало jsonb_build_object из RPC). */
+/** Строка БД → DTO ответа. */
 export function toAccumulationDto(row: AccumulationRow): AccumulationDto {
   return {
     id: row.id,
@@ -22,7 +21,7 @@ export function toAccumulationDto(row: AccumulationRow): AccumulationDto {
 }
 
 export class AccumulationsRepository {
-  /** get_accumulations(p_user_id): свои накопления, новые сверху. */
+  /** Свои накопления, новые сверху. */
   async list(userId: string): Promise<AccumulationRow[]> {
     const { rows } = await pool.query<AccumulationRow>(
       `SELECT * FROM public.accumulations
@@ -33,7 +32,7 @@ export class AccumulationsRepository {
     return rows;
   }
 
-  /** create_accumulation: строка всегда привязана к пользователю из токена. */
+  /** Создание накопления: строка всегда привязана к пользователю из токена. */
   async create(
     userId: string,
     amount: number,
@@ -50,8 +49,8 @@ export class AccumulationsRepository {
   }
 
   /**
-   * update_accumulation c ownership-фильтром. В отличие от RPC (затирал
-   * все три поля всегда), обновляются только переданные — PATCH-семантика.
+   * Обновление с ownership-фильтром: меняются только переданные поля
+   * (PATCH-семантика), случайный null не затирает данные.
    */
   async update(
     id: string,
@@ -95,7 +94,7 @@ export class AccumulationsRepository {
     return rows[0] ?? null;
   }
 
-  /** delete_accumulation + RLS-фильтр. */
+  /** Удаление с ownership-фильтром. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.accumulations WHERE id = $1 AND user_id = $2',

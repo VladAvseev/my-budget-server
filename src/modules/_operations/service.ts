@@ -18,19 +18,18 @@ import type {
 } from './types.js';
 
 /**
- * Бизнес-логика операций — порт RPC get_operations_by_report,
- * get_operations_by_reports, get_savings_operations, create_operation,
- * update_operation, delete_operation.
+ * Бизнес-логика операций: выборки по отчёту/набору отчётов, накопления,
+ * создание, обновление и удаление.
  *
- * Проверка «отчёт свой» (в Supabase — часть RLS) выполняется перед каждым
- * чтением/записью операций отчёта; сама операция всегда пишется с user_id
- * из токена и удаляется/обновляется только своего user_id.
+ * Проверка «отчёт свой» выполняется перед каждым чтением/записью операций
+ * отчёта; сама операция всегда пишется с user_id из токена и удаляется/
+ * обновляется только своего user_id.
  */
 export class OperationsService {
   /**
-   * GET /operations — два режима, как два RPC:
-   *  1. ?reportId=&type=  → get_operations_by_report;
-   *  2. ?reportIds=a,b,c  → get_operations_by_reports (сводка overview).
+   * GET /operations — два режима:
+   *  1. ?reportId=&type=  → операции одного отчёта;
+   *  2. ?reportIds=a,b,c  → сводка по набору отчётов для overview.
    */
   async list(
     userId: string,
@@ -64,7 +63,7 @@ export class OperationsService {
     return operationsRepository.listByReports(reportIds, userId);
   }
 
-  /** GET /operations/savings — порт get_savings_operations (карточка «Накопления»). */
+  /** GET /operations/savings (карточка «Накопления»). */
   async listSavings(userId: string): Promise<SavingsOperationDto[]> {
     const rows = await operationsRepository.listSavings(userId);
     return rows.map((row) => operationsRepository.toSavingsDto(row));
@@ -93,9 +92,8 @@ export class OperationsService {
   }
 
   /**
-   * PATCH /operations/:id — обновляем только переданные поля
-   * (в RPC amount/category_id/description затирались всегда, здесь это
-   * безопаснее и не ломает клиент: он шлёт все поля целиком).
+   * PATCH /operations/:id — обновляем только переданные поля: случайный
+   * null в запросе не стирает данные (клиент и так шлёт все поля целиком).
    */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<OperationDto> {
     const operationId = requireUuid(id);
@@ -139,7 +137,7 @@ export class OperationsService {
     return toOperationDto(row);
   }
 
-  /** DELETE /operations/:id → 204/404 (порт delete_operation + RLS). */
+  /** DELETE /operations/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
     const operationId = requireUuid(id);
     const removed = await operationsRepository.remove(operationId, userId);
@@ -155,7 +153,7 @@ export class OperationsService {
     }
     const categoryId = requireUuid(value, 'Некорректный идентификатор категории');
     if (!(await categoriesRepository.isOwned(userId, categoryId))) {
-      // В Supabase на это молча указывал RLS; здесь отвечаем явной ошибкой формы.
+      // Чужую категорию не подводим: отвечаем явной ошибкой той же формы.
       throw new AppError('Категория не найдена', 400);
     }
     return categoryId;

@@ -15,13 +15,12 @@ import type {
 /**
  * Слой доступа к данным отчётов, их сводок, лимитов категорий и daily-расходов.
  *
- * Принадлежность строк пользователю в Supabase обеспечивалась RLS
- * (`user_id = auth.uid()` на select/insert/update/delete); здесь вместо него
- * каждый запрос фильтрует по user_id, а проверка ownership отчёта вызывается
- * из сервиса перед операциями над вложенными ресурсами (summary/limits/daily).
+ * Принадлежность строк пользователю обеспечивает сам сервер: каждый запрос
+ * фильтрует по user_id, а проверка ownership отчёта вызывается из сервиса
+ * перед операциями над вложенными ресурсами (summary/limits/daily).
  */
 
-/** Строка БД → jsonb-подобный DTO (зеркало jsonb_build_object из RPC). */
+/** Строка БД → DTO ответа (camelCase-ключи задаёт клиентский тип). */
 export function toReportDto(row: ReportRow): ReportDto {
   return {
     id: row.id,
@@ -37,7 +36,7 @@ export function toReportDto(row: ReportRow): ReportDto {
   };
 }
 
-/** Строка `category_limits` → DTO (зеркало jsonb_build_object из limits-RPC). */
+/** Строка `category_limits` → DTO ответа. */
 export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
   return {
     id: row.id,
@@ -55,10 +54,7 @@ const OPERATION_COLUMNS = `id, report_id, user_id, type, amount, category_id,
        description, date, created_at, updated_at`;
 
 export class ReportsRepository {
-  /**
-   * Порт финальной продакшн-версии get_reports: `order by period_start desc`
-   * (именно она перекрывала одноимённые более ранние варианты в functions.sql).
-   */
+  /** Список отчётов пользователя: новые (по началу периода) сверху. */
   async list(userId: string): Promise<ReportRow[]> {
     const { rows } = await pool.query<ReportRow>(
       `SELECT * FROM public.reports
@@ -69,7 +65,7 @@ export class ReportsRepository {
     return rows;
   }
 
-  /** get_report + RLS: отдаём отчёт только его владельцу. */
+  /** Отчёт по id: отдаём только его владельцу. */
   async getById(id: string, userId: string): Promise<ReportRow | null> {
     const { rows } = await pool.query<ReportRow>(
       'SELECT * FROM public.reports WHERE id = $1 AND user_id = $2',
@@ -78,7 +74,7 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Проверка уникальности кода до вставки (порт exists-блока create_report). */
+  /** Проверка уникальности кода периода до вставки (пустой код не учитывается). */
   async codeExists(userId: string, code: string): Promise<boolean> {
     const { rows } = await pool.query(
       "SELECT 1 FROM public.reports WHERE user_id = $1 AND code = $2 AND code <> ''",
@@ -87,7 +83,7 @@ export class ReportsRepository {
     return rows.length > 0;
   }
 
-  /** Порт create_report. Дубликат кода поймает и частичный unique-индекс (23505). */
+  /** Создание отчёта. Дубликат кода поймает и частичный unique-индекс (23505). */
   async create(userId: string, input: CreateReportInput): Promise<ReportRow> {
     const { rows } = await pool.query<ReportRow>(
       `INSERT INTO public.reports
@@ -152,7 +148,7 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Порт delete_report; каскад schema.sql удалит операции и лимиты. */
+  /** Удаление отчёта; каскад schema.sql удалит операции и лимиты. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.reports WHERE id = $1 AND user_id = $2',
@@ -162,8 +158,9 @@ export class ReportsRepository {
   }
 
   /**
-   * Порт get_report_summary (тот же SQL, что get_user_summary в _users,
-   * только фильтр по report_id). SUM() по пустой таблице → NULL, отсюда coalesce.
+   * Сводка сумм по типам операций одного отчёта — тот же SQL, что в
+   * getSummary-запросе модуля _users, только фильтр по report_id.
+   * SUM() по пустой таблице даёт NULL, отсюда coalesce.
    */
   async getSummary(reportId: string): Promise<ReportSummary> {
     const { rows } = await pool.query<{
@@ -191,7 +188,7 @@ export class ReportsRepository {
     };
   }
 
-  /** get_category_limits: лимиты отчёта, старые сверху (как в RPC). */
+  /** Лимиты категорий отчёта в порядке создания (старые сверху). */
   async listCategoryLimits(reportId: string): Promise<CategoryLimitRow[]> {
     const { rows } = await pool.query<CategoryLimitRow>(
       `SELECT * FROM public.category_limits
@@ -212,9 +209,8 @@ export class ReportsRepository {
   }
 
   /**
-   * Порт set_category_limits: полная замена лимитов в ОДНОЙ транзакции
-   * (plpgsql-функция в Supabase была транзакционной сама; pool.query без BEGIN
-   * оставил бы отчёт без лимитов при падении вставки).
+   * Полная замена лимитов категорий в ОДНОЙ транзакции: pool.query без BEGIN
+   * оставил бы отчёт без лимитов при падении вставки.
    */
   async replaceCategoryLimits(
     reportId: string,
@@ -224,7 +220,7 @@ export class ReportsRepository {
     return withTransaction(async (client) => {
       await client.query('DELETE FROM public.category_limits WHERE report_id = $1', [reportId]);
 
-      // Пустой список = «лимиты сброшены», дальше вставлять нечего (как `return '[]'` в RPC).
+      // Пустой список = «лимиты сброшены», дальше вставлять нечего.
       for (const item of limits) {
         await client.query(
           `INSERT INTO public.category_limits (report_id, category_id, user_id, amount)
@@ -244,8 +240,8 @@ export class ReportsRepository {
   }
 
   /**
-   * Порт SELECT из create_daily_expense: первая дата периода, на которой ещё
-   * нет daily-операции отчёта. generate_series по датам, NOT EXISTS по операциям.
+   * Первая дата периода, на которой ещё нет daily-операции отчёта:
+   * generate_series по датам, NOT EXISTS по операциям.
    */
   async findFreeDailyDate(reportId: string, periodStart: string, periodEnd: string) {
     const { rows } = await pool.query<{ free_date: string | null }>(
@@ -262,7 +258,7 @@ export class ReportsRepository {
     return rows[0]?.free_date ?? null;
   }
 
-  /** INSERT daily-операции (category_id не заполняется — как в RPC). */
+  /** INSERT daily-операции (category_id у таких операций не заполняется). */
   async insertDailyExpense(
     reportId: string,
     userId: string,
@@ -280,7 +276,7 @@ export class ReportsRepository {
   }
 
   /**
-   * Порт disable_daily_expenses: удаление daily-операций + сброс настроек —
+   * Отключение daily-режима: удаление daily-операций + сброс настроек —
    * оба statement'а в одной транзакции.
    */
   async disableDailyExpenses(reportId: string): Promise<void> {

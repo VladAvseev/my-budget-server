@@ -5,19 +5,18 @@ import { accumulationsRepository, toAccumulationDto } from './repository.js';
 import type { AccumulationDto, UpdateAccumulationInput } from './types.js';
 
 /**
- * Бизнес-логика накоплений — порт RPC create_accumulation /
- * update_accumulation / delete_accumulation / get_accumulations.
+ * Бизнес-логика накоплений: создание, обновление, удаление, список.
  *
  * Формы клиента (CreateAccumulationModal / EditAccumulationModal) шлют
  * savings-категорию; проверка, что категория своя и именно savings —
- * серверная замена RLS-политик Supabase (в RPC её не было вовсе).
+ * здесь, на сервере.
  */
 
 /** Категории накоплений — тип 'savings' из CHECK-констрейнта схемы. */
 const SAVINGS_CATEGORY_TYPE = 'savings' as const;
 
 export class AccumulationsService {
-  /** GET /accumulations → get_accumulations: список, новые сверху. */
+  /** GET /accumulations: список, новые сверху. */
   async list(userId: string): Promise<AccumulationDto[]> {
     const rows = await accumulationsRepository.list(userId);
     return rows.map(toAccumulationDto);

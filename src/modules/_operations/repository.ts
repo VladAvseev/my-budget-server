@@ -15,13 +15,12 @@ import type {
 /**
  * Слой доступа к данным операций.
  *
- * Операция принадлежит отчёту, а отчёт — пользователю; в Supabase цепочку
- * «свой ли отчёт» проверял RLS на reports+operations. Здесь перед каждой
+ * Операция принадлежит отчёту, а отчёт — пользователю: перед каждой
  * операцией с отчётом вызывается assertReportOwnership(), а сами запросы
  * к операциям фильтруются по operations.user_id (он проставляется из токена).
  */
 
-/** Строка БД → jsonb-подобный DTO (зеркало jsonb_build_object из RPC). */
+/** Строка БД → DTO ответа. */
 export function toOperationDto(row: OperationRow): OperationDto {
   return {
     id: row.id,
@@ -53,9 +52,8 @@ export class OperationsRepository {
   }
 
   /**
-   * Порт get_operations_by_report(p_report_id, p_type).
-   * Порядок как в RPC: для daily сортировка по дате расхода (nulls last),
-   * для остальных типов — по времени создания; оба desc.
+   * Операции одного отчёта по типу. Порядок: для daily — по дате расхода
+   * (nulls last), для остальных типов — по времени создания; оба desc.
    */
   async listByReport(reportId: string, type: OperationType): Promise<OperationRow[]> {
     const { rows } = await pool.query<OperationRow>(
@@ -71,9 +69,8 @@ export class OperationsRepository {
   }
 
   /**
-   * Порт get_operations_by_reports(p_report_ids): операции по списку отчётов,
-   * только поля сводки. Фильтр user_id — замена RLS (чужие отчёты молча
-   * выпадают из выборки, как раньше выпадали из-за политик).
+   * Операции по списку отчётов, только поля сводки. Фильтр по user_id
+   * не даёт вытащить чужие отчёты — они молча выпадают из выборки.
    */
   async listByReports(reportIds: string[], userId: string): Promise<OverviewOperationDto[]> {
     if (reportIds.length === 0) {
@@ -100,9 +97,8 @@ export class OperationsRepository {
   }
 
   /**
-   * Порт get_savings_operations: пополнения/снятия накоплений с данными
-   * отчёта. Порядок jsonb_agg из RPC (сначала по периоду отчёта, затем по
-   * created_at) воспроизведён обычным ORDER BY.
+   * Пополнения/снятия накоплений с данными отчёта. Порядок:
+   * сначала по периоду отчёта, затем по created_at.
    */
   async listSavings(userId: string): Promise<SavingsOperationRow[]> {
     const { rows } = await pool.query<SavingsOperationRow>(
@@ -118,7 +114,7 @@ export class OperationsRepository {
     return rows;
   }
 
-  /** Порт create_operation: user_id из токена (вместо auth.uid()). */
+  /** Создание операции: user_id берётся из проверенного токена. */
   async create(input: CreateOperationInput, userId: string): Promise<OperationRow> {
     const { rows } = await pool.query<OperationRow>(
       `INSERT INTO public.operations
@@ -140,7 +136,7 @@ export class OperationsRepository {
 
   /**
    * Обновление только переданных полей (см. комментарий к UpdateOperationInput).
-   * WHERE id AND user_id — аналог RLS: чужую операцию не задеть.
+   * WHERE id AND user_id: чужую операцию не задеть.
    */
   async update(
     id: string,
@@ -193,7 +189,7 @@ export class OperationsRepository {
     return rows[0] ?? null;
   }
 
-  /** Порт delete_operation с ownership-фильтром. */
+  /** Удаление операции с ownership-фильтром. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.operations WHERE id = $1 AND user_id = $2',
@@ -202,11 +198,11 @@ export class OperationsRepository {
     return (rowCount ?? 0) > 0;
   }
 
-  /** DTO строки «пополнение/снятие» с полями отчёта (порт jsonb-ключа). */
+  /** DTO строки «пополнение/снятие» с полями отчёта. */
   toSavingsDto(row: SavingsOperationRow): SavingsOperationDto {
     return {
       ...toOperationDto(row),
-      // Ключи reportName/reportPeriodStart — исторические из RPC, не переименовываем.
+      // Ключи reportName/reportPeriodStart исторические, не переименовываем.
       reportName: row.report_name,
       reportPeriodStart: row.report_period_start,
     };

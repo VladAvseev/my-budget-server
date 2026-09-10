@@ -10,7 +10,7 @@ import type {
 /**
  * Преобразование строки БД в DTO для API-ответа:
  * убираем password_hash и переводим snake_case → camelCase
- * (клиент и через Supabase получал camelCase/jsonb, так UI не менять).
+ * (клиентские типы исторически в camelCase, так UI не менять).
  */
 export function toPublicUser(row: UserRow): PublicUser {
   return {
@@ -39,7 +39,6 @@ export class UsersRepository {
    * Выборочное обновление профиля. Поля принимаются только из whitelist
    * (startBalance/currency/onboarded) — SQL-инъекция через имена полей
    * исключена, значения всегда уходят параметрами $n.
-   * Заменяет клиентские RPC update_start_balance / update_currency / complete_onboarding.
    */
   async update(id: string, input: UpdateProfileInput): Promise<UserRow | null> {
     const sets: string[] = [];

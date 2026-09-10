@@ -3,8 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 
 /**
  * HTTP-слой операций. Маршруты закрыты `authenticate` в router.ts —
- * id пользователя берётся из проверенного JWT (req.user.id), это замена
- * auth.uid() внутри RPC-функций Supabase.
+ * id пользователя берётся из проверенного JWT (req.user.id).
  */
 export class OperationsController {
   /**

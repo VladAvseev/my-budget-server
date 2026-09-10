@@ -5,19 +5,17 @@ import { goalsRepository, toGoalDto } from './repository.js';
 import type { GoalDto } from './types.js';
 
 /**
- * Бизнес-логика целей накоплений — порт RPC create_goal / update_goal /
- * delete_goal / get_goals.
+ * Бизнес-логика целей накоплений: создание, обновление, удаление, список.
  *
- * create_goal в Supabase проверял, что категория — savings-тип владельца
- * (raise exception 'Категория не найдена среди категорий накоплений');
- * уникальность «одна цель на категорию» держал partial unique index схемы,
- * в Supabase — политика. Здесь обе проверки явные.
+ * Категория обязана быть своей и savings-типа
+ * ('Категория не найдена среди категорий накоплений'); уникальность
+ * «одна цель на категорию» держит partial unique index схемы. Обе проверки явные.
  */
 
 const SAVINGS_CATEGORY_TYPE = 'savings' as const;
 
 export class GoalsService {
-  /** GET /goals → get_goals: цели пользователя (новые сверху). */
+  /** GET /goals: цели пользователя (новые сверху). */
   async list(userId: string): Promise<GoalDto[]> {
     const rows = await goalsRepository.list(userId);
     return rows.map(toGoalDto);
@@ -30,7 +28,7 @@ export class GoalsService {
     const amount = requireAmount(body.amount, 'Сумма цели должна быть положительным числом');
     const targetDate = optionalDateOrNull(body.targetDate, 'Целевая дата в формате YYYY-MM-DD');
 
-    // Порт exists-проверки из create_goal: своя + savings.
+    // Проверка категории: своя + savings.
     if (!(await categoriesRepository.isOwned(userId, categoryId, SAVINGS_CATEGORY_TYPE))) {
       throw new AppError('Категория не найдена среди категорий накоплений', 400);
     }
