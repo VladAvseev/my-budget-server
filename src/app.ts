@@ -20,8 +20,8 @@ app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(rateLimitMiddleware);
 app.use(express.json());
-// Строго после express.json(): нужен распарсенный req.body. Логи пишутся
-// в public.request_logs (таблица из db/schema.sql), просмотр — /admin/logs.
+// Логи пишутся в public.request_logs (таблица из db/schema.sql), просмотр —
+// /admin/logs; тела запросов/ответов не сохраняются.
 app.use(requestLoggingMiddleware);
 app.use('/api/v1', apiRouter);
 app.use(notFoundMiddleware);

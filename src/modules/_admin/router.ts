@@ -39,10 +39,12 @@ adminRouter.get('/users', adminController.listUsers);
 // с подтверждением вводом email. Удалить себя сервер не даёт (400).
 adminRouter.delete('/users/:userId', adminController.deleteUser);
 
-// GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&page=1&limit=50 —
+// GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&page=1&limit=50
+//     &sort=date|duration&order=asc|desc —
 // трассировка HTTP-запросов из request_logs (пишет requestLoggingMiddleware).
 // Вкладка «Логи» админ-панели: таблица с фильтром по успеху и автору запроса
-// (userId=anonymous — только запросы без авторизации) и пагинацией.
+// (userId=anonymous — только запросы без авторизации), сортировкой по дате или
+// длительности и пагинацией.
 adminRouter.get('/logs', adminController.listLogs);
 
 // GET /admin/logs/metrics?period=24h|7d|30d|all — агрегированные метрики

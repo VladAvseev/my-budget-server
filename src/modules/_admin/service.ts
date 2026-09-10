@@ -9,6 +9,8 @@ import type {
   AdminUserRow,
   DatabaseSize,
   LogsPeriod,
+  LogsSortField,
+  LogsSortOrder,
   LogsStatusFilter,
   LogsUserFilter,
   StorageBreakdown,
@@ -65,13 +67,15 @@ export class AdminService {
   /** Белые списки значений фильтров — вне списка бросаем 400. */
   private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = ['all', 'success', 'error'];
   private static readonly LOG_PERIODS: LogsPeriod[] = ['24h', '7d', '30d', 'all'];
+  private static readonly LOG_SORT_FIELDS: LogsSortField[] = ['date', 'duration'];
+  private static readonly LOG_SORT_ORDERS: LogsSortOrder[] = ['asc', 'desc'];
 
   /** Значение userId = «только запросы без авторизации» (остальное — uuid пользователя). */
   private static readonly LOG_USER_ANONYMOUS = 'anonymous';
 
   /**
    * GET /admin/logs — query: status=all|success|error, userId=<uuid>|anonymous,
-   * page, limit.
+   * page, limit, sort=date|duration, order=asc|desc.
    */
   async listLogs(query: Record<string, unknown>): Promise<AdminLogsPage> {
     const status = (query.status ?? 'all') as string;
@@ -81,10 +85,26 @@ export class AdminService {
 
     const user = this.parseLogsUserFilter(query.userId);
 
+    const sort = (query.sort ?? 'date') as string;
+    if (!AdminService.LOG_SORT_FIELDS.includes(sort as LogsSortField)) {
+      throw new AppError('Недопустимое поле сортировки sort', 400);
+    }
+    const order = (query.order ?? 'desc') as string;
+    if (!AdminService.LOG_SORT_ORDERS.includes(order as LogsSortOrder)) {
+      throw new AppError('Недопустимый порядок сортировки order', 400);
+    }
+
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
 
-    return adminRepository.getLogs(status as LogsStatusFilter, user, page, limit);
+    return adminRepository.getLogs(
+      status as LogsStatusFilter,
+      user,
+      page,
+      limit,
+      sort as LogsSortField,
+      order as LogsSortOrder,
+    );
   }
 
   /**

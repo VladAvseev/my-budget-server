@@ -131,19 +131,17 @@ create index refresh_tokens_expires_at_idx on public.refresh_tokens (expires_at)
 create unique index reports_user_id_code_key on public.reports (user_id, code) where code <> '';
 
 -- ── Логи HTTP-запросов (просмотр — админка, метрики считаются SQL-ем) ──────
--- Пишет middleware requestLoggingMiddleware; пароли/токены в телах
--- маскируются ещё до записи ('***'). Устаревшие строки чистит сама
--- middleware (LOG_RETENTION_DAYS).
+-- Пишет middleware requestLoggingMiddleware; query маскируется ещё до записи
+-- ('***'). Тела запросов/ответов не хранятся (слишком объёмные). Устаревшие
+-- строки чистит сама middleware (LOG_RETENTION_DAYS).
 create table public.request_logs (
   id bigint generated always as identity primary key,
   created_at timestamptz not null default now(),
   method text not null,
   path text not null,
   query jsonb,
-  body jsonb,
   status smallint not null,
   duration_ms integer not null,
-  response_body jsonb,
   error text,
   user_id uuid references public.users (id) on delete set null,
   -- Отделяет «запрос без авторизации» от «user_id обнулён каскадом»:

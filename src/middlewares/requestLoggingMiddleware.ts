@@ -4,33 +4,35 @@ import type { NextFunction, Request, Response } from 'express';
 /**
  * Логирование HTTP-запросов в таблицу public.request_logs.
  *
- * Что пишется: метод, путь, query, тело запроса, статус, длительность,
- * тело ответа / текст ошибки, user_id + is_authenticated (автор запроса:
- * для неавторизованных user_id = null, is_authenticated = false), ip,
- * user-agent. Тело ответа перехватывается обёрткой над res.json/res.send,
- * длительность считается до res.finish.
+ * Что пишется: метод, путь, query, статус, длительность, текст ошибки,
+ * user_id + is_authenticated (автор запроса: для неавторизованных
+ * user_id = null, is_authenticated = false), ip, user-agent. Тела запроса и
+ * ответа НЕ сохраняются — они занимали основной объём таблицы; текст ошибки
+ * извлекается на лету из envelope { error: { message } }, который отдаёт
+ * errorMiddleware (ответ перехватывается обёрткой над res.send и не пишется).
+ * Длительность считается до res.finish.
+ *
+ * Пути нормализуются: UUID- и чисто числовые сегменты заменяются на ':id'
+ * (/api/v1/reports/:id) — иначе метрики топов группировали бы каждый id
+ * отдельно и считали среднее время по одиночным запросам.
  *
  * Безопасность:
- *   * поля password/newPassword/refreshToken в телах маскируются '***';
+ *   * поля password/newPassword/refreshToken в query маскируются '***';
  *   * заголовок Authorization в базу не попадает;
- *   * тела и ответ урезаются до ~4 КБ;
+ *   * query урезается до ~4 КБ;
  *   * логирование НЕ блокирует запрос: вставка fire-and-forget, ошибка
  *     записи выводится в stderr и не влияет на ответ клиенту;
  *   * не логируем health-check и всю админ-панель (/api/v1/admin/*) — иначе
  *     админка шумела бы сама от себя своими опросами;
  *
  * Настройки (.env, с дефолтами ниже):
- *   LOG_BODIES=false         — не писать тела запроса/ответа;
  *   LOG_RETENTION_DAYS=30    — сколько дней хранить логи.
  */
 
 /** Сколько дней держим строки в request_logs. */
 const RETENTION_DAYS = Number(process.env.LOG_RETENTION_DAYS) || 30;
 
-/** Писать ли тела запроса/ответа в лог. */
-const LOG_BODIES = process.env.LOG_BODIES !== 'false';
-
-/** Максимальный размер сохраняемого тела (символов JSON-строки). */
+/** Максимальный размер сохраняемого query (символов JSON-строки). */
 const BODY_LIMIT = 4096;
 
 /** Точные пути, которые не логируем. */
@@ -74,8 +76,28 @@ function truncateJson(value: unknown): string | null {
   if (text.length <= BODY_LIMIT) {
     return text;
   }
-  // Помечаем обрезку строкой-маркером — в админке видно, что тело усечено.
+  // Помечаем обрезку строкой-маркером — в админке видно, что query усечён.
   return JSON.stringify({ truncated: text.slice(0, BODY_LIMIT) });
+}
+
+/** Сегмент пути — UUID (id ресурсов в БД). */
+const UUID_SEGMENT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Сегмент пути — числовой id (на случай bigint-маршрутов в будущем). */
+const NUMERIC_SEGMENT_RE = /^\d+$/;
+
+/**
+ * Нормализация пути для хранения: UUID- и числовые сегменты -> ':id',
+ * чтобы все запросы к одному маршруту (/reports/123 -> /reports/:id)
+ * группировались в метриках топов корректно.
+ */
+function normalizePath(path: string): string {
+  return path
+    .split('/')
+    .map((segment) =>
+      UUID_SEGMENT_RE.test(segment) || NUMERIC_SEGMENT_RE.test(segment) ? ':id' : segment,
+    )
+    .join('/');
 }
 
 /** Очистка устаревших логов: 1 шанс из 200 на каждый запрос (не DoS-ит БД). */
@@ -105,7 +127,7 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
 
   const startedAt = performance.now();
 
-  // Перехват тела ответа: оборачиваем send/json — они обе проходят через send.
+  // Перехватываем ответ только ради текста ошибки: тело ответа в базу не пишем.
   let responseBody: unknown;
   const originalSend = res.send.bind(res);
   res.send = (body?: unknown): Response => {
@@ -126,7 +148,6 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
         parsed = responseBody;
       }
     }
-    const responsePayload = LOG_BODIES ? truncateJson(parsed) : null;
 
     // Текст ошибки берём из envelope { error: { message } }, который
     // формирует errorMiddleware — дублировать передачу не нужно.
@@ -135,23 +156,20 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
         ? String(parsed.error.message ?? '')
         : null;
 
-    const requestBody = LOG_BODIES ? truncateJson(maskSensitive(req.body)) : null;
     const query = Object.keys(req.query).length > 0 ? truncateJson(maskSensitive(req.query)) : null;
 
     pool
       .query(
         `INSERT INTO public.request_logs
-           (method, path, query, body, status, duration_ms, response_body, error,
+           (method, path, query, status, duration_ms, error,
             user_id, is_authenticated, ip, user_agent)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)`,
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)`,
         [
           req.method,
-          fullPath,
+          normalizePath(fullPath),
           query,
-          requestBody,
           status,
           durationMs,
-          responsePayload,
           errorPayload,
           req.user?.id ?? null,
           // Фиксируем факт авторизации на момент запроса: user_id может быть

@@ -112,19 +112,25 @@ src/
 - **Path alias:** `@/` → `./src/` (настроен в `tsconfig.json`)
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
 - **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
-  в таблицу `public.request_logs` (схема — `db/schema.sql`): метод/путь/query/тела,
-  статус, длительность, user_id/is_authenticated/ip/user-agent. Автор — из
+  в таблицу `public.request_logs` (схема — `db/schema.sql`): метод/путь/query,
+  статус, длительность, текст ошибки, user_id/is_authenticated/ip/user-agent. Автор — из
   `req.user`, который заполняет `authenticate`; пишется в `res.on('finish')`,
   поэтому к этому моменту уже известна роль. `is_authenticated` фиксирует факт
   авторизации на момент запроса и отличается от `user_id is null` (после
   `on delete set null` строки удалённого юзера остались бы «без авторизации»).
-  Тела маскируются (`password`, `newPassword`, `refreshToken` → `'***'`),
-  урезаются до 4 КБ; `/health` и вся админ-панель (`/api/v1/admin/*`) не
-  логируются; вставка fire-and-forget. Env: `LOG_BODIES` (по умолчанию `true`),
+  Тела запроса и ответа в базу НЕ сохраняются — они занимали основной объём
+  таблицы; текст ошибки извлекается на лету из envelope `{ error: { message } }`.
+  Query маскируется (`password`, `newPassword`, `refreshToken` → `'***'`),
+  урезается до 4 КБ; UUID- и числовые сегменты пути пишутся как `:id`
+  (`/api/v1/reports/:id`) — иначе метрики топов группировали бы каждый id
+  отдельно; `/health` и вся админ-панель (`/api/v1/admin/*`) не
+  логируются; вставка fire-and-forget. Env:
   `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
   строки middleware удаляет сам, вероятностно ~1 раз на 200 запросов).
   Просмотр/метрики — `GET /admin/logs` (фильтры `status`, `userId=<uuid>` или
-  `userId=anonymous` — только запросы без авторизации), `GET /admin/logs/metrics`
+  `userId=anonymous` — только запросы без авторизации; сортировка
+  `sort=date|duration` + `order=asc|desc`, по умолчанию свежие сверху),
+  `GET /admin/logs/metrics`
   (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер

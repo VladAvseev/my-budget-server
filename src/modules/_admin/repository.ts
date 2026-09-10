@@ -8,6 +8,8 @@ import type {
   AdminUserRow,
   DatabaseSize,
   LogsPeriod,
+  LogsSortField,
+  LogsSortOrder,
   LogsStatusFilter,
   LogsUserFilter,
   StorageBreakdown,
@@ -211,15 +213,21 @@ export class AdminRepository {
    * Страница логов для админки. Фильтр по статусу — whitelist из
    * LogsStatusFilter, мапится в условие status < 400 / >= 400; фильтр по
    * автору — LogsUserFilter (все / без авторизации / конкретный пользователь).
-   * Email автора тянется LEFT JOIN по public.users: у строк без авторизации
-   * (user_id is null) он остаётся null.
+   * Сортировка — whitelist LogsSortField/LogsSortOrder (колонка подставляется
+   * из маппинга, не из строки клиента), tie-breaker id DESC для стабильной
+   * пагинации при одинаковых duration_ms. Email автора тянется LEFT JOIN по
+   * public.users: у строк без авторизации (user_id is null) он остаётся null.
    */
   async getLogs(
     filter: LogsStatusFilter,
     user: LogsUserFilter,
     page: number,
     limit: number,
+    sort: LogsSortField = 'date',
+    order: LogsSortOrder = 'desc',
   ): Promise<AdminLogsPage> {
+    const sortColumn = sort === 'duration' ? 'rl.duration_ms' : 'rl.created_at';
+    const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (filter === 'success') {
@@ -247,10 +255,8 @@ export class AdminRepository {
       method: string;
       path: string;
       query: unknown;
-      body: unknown;
       status: number;
       duration_ms: number;
-      response_body: unknown;
       error: string | null;
       user_id: string | null;
       is_authenticated: boolean;
@@ -258,13 +264,13 @@ export class AdminRepository {
       ip: string | null;
       user_agent: string | null;
     }>(
-      `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.query, rl.body, rl.status,
-              rl.duration_ms, rl.response_body, rl.error, rl.user_id, rl.is_authenticated,
+      `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.query, rl.status,
+              rl.duration_ms, rl.error, rl.user_id, rl.is_authenticated,
               u.email AS user_email, host(rl.ip) AS ip, rl.user_agent
        FROM public.request_logs rl
        LEFT JOIN public.users u ON u.id = rl.user_id
        ${where}
-       ORDER BY rl.created_at DESC
+       ORDER BY ${sortColumn} ${sortOrder}, rl.id DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
@@ -276,10 +282,8 @@ export class AdminRepository {
         method: row.method,
         path: row.path,
         query: row.query,
-        body: row.body,
         status: row.status,
         durationMs: row.duration_ms,
-        responseBody: row.response_body,
         error: row.error,
         userId: row.user_id,
         userEmail: row.user_email,

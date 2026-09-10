@@ -119,6 +119,13 @@ export type LogsUserFilter =
 /** Период агрегации метрик. */
 export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
 
+/**
+ * Сортировка строк логов (query `sort`/`order` в GET /admin/logs):
+ * date — created_at (по умолчанию), duration — duration_ms.
+ */
+export type LogsSortField = 'date' | 'duration';
+export type LogsSortOrder = 'asc' | 'desc';
+
 /** Одна строка лога (GET /admin/logs). */
 export interface AdminLogRow {
   id: number;
@@ -126,10 +133,8 @@ export interface AdminLogRow {
   method: string;
   path: string;
   query: unknown | null;
-  body: unknown | null;
   status: number;
   durationMs: number;
-  responseBody: unknown | null;
   error: string | null;
   /** Автор запроса; null — запрос без авторизации (или пользователь удалён). */
   userId: string | null;
