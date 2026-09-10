@@ -7,8 +7,8 @@ stages:
   - mirror
 
 variables:
-  # Тот же образ Node, что в клиентском пайплайне
-  NODE_IMAGE: node:20-alpine
+  # Тот же образ Node, что в Dockerfile api
+  NODE_IMAGE: node:22-alpine
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Этап 1: проверка и сборка Express-бэкенда
@@ -81,4 +81,5 @@ mirror-to-github:
     - ssh-keyscan github.com >> ~/.ssh/known_hosts
     - git remote add github git@github.com:VladAvseev/my-budget-server.git
   script:
-    - git push github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"
+    # --force: зеркало однонаправленное (GitLab → GitHub), расходимость перезаписываем
+    - git push --force github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"
