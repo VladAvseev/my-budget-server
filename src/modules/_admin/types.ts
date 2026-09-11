@@ -1,9 +1,12 @@
 /**
  * Типы модуля admin: сводки дашборда, динамика операций, размер БД,
  * список пользователей, логи запросов.
- * Ключи соответствуют доменным типам клиента (AdminDashboardStats,
- * AdminUserRow, DatabaseSize в client/src/shared/api/types/domain.ts),
- * чтобы админ-панель не менялась.
+ * Ключи соответствуют типам клиента, которые живут в файлах его хуков:
+ * AdminDashboardStats — client/src/modules/_admin/_dashboard/api/useAdminStats.ts,
+ * AdminUserRow — client/src/modules/_admin/_users/api/useAdminUsers.ts,
+ * форма строк логов — client/src/modules/_admin/_logs/api/useAdminLogs.ts
+ * (DatabaseSize клиентом не используется: карточка «Хранилище» берёт
+ * storage-breakdown), чтобы админ-панель не менялась.
  *
  * Права: доступ к маршрутам даёт middleware requireAdmin
  * (authenticate + JWT-claim role) в router.ts.

@@ -3,7 +3,9 @@
  *
  * Ответы — snake_case + camelCase-дополнения вроде reportName: ключи
  * совпадают с доменным типом Operation из клиента
- * (см. client/src/shared/api/types/domain.ts).
+ * (см. client/src/shared/api/types/domain.ts), а SavingsOperationDto —
+ * с клиентским SavingsOperation
+ * (см. client/src/shared/api/hooks/useSavingsOperations.ts).
  */
 
 /** Типы операций — CHECK-констрейнт `operations_type_check` в db/schema.sql. */
