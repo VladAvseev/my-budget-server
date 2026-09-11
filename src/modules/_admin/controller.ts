@@ -29,16 +29,6 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/dashboard/database-size → 200: { sizeBytes, sizePretty }. */
-  async getDatabaseSize(_req: Request, res: Response, next: NextFunction) {
-    try {
-      const size = await adminService.getDatabaseSize();
-      res.status(200).json({ data: size });
-    } catch (error) {
-      next(error);
-    }
-  }
-
   /** GET /admin/dashboard/storage-breakdown → 200: { databaseBytes, tables[] }. */
   async getStorageBreakdown(_req: Request, res: Response, next: NextFunction) {
     try {
@@ -64,6 +54,16 @@ export class AdminController {
     try {
       const users = await adminService.listUsers();
       res.status(200).json({ data: users });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** GET /admin/users/options → 200: [{ userId, email }] для селектов. */
+  async getUserOptions(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const options = await adminService.getUserOptions();
+      res.status(200).json({ data: options });
     } catch (error) {
       next(error);
     }

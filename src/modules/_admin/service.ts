@@ -8,8 +8,8 @@ import type {
   AdminLogsMetrics,
   AdminLogsPage,
   AdminOperationsDynamics,
+  AdminUserOption,
   AdminUserRow,
-  DatabaseSize,
   LogsAudience,
   LogsDynamicsBucket,
   LogsMethod,
@@ -119,10 +119,6 @@ export class AdminService {
     throw new AppError('Недопустимая гранулярность bucket', 400);
   }
 
-  async getDatabaseSize(): Promise<DatabaseSize> {
-    return adminRepository.getDatabaseSize();
-  }
-
   async getStorageBreakdown(): Promise<StorageBreakdown> {
     return adminRepository.getStorageBreakdown();
   }
@@ -145,6 +141,11 @@ export class AdminService {
 
   async listUsers(): Promise<AdminUserRow[]> {
     return adminRepository.listUsers();
+  }
+
+  /** GET /admin/users/options — лёгкие id+email для селектов (без агрегатов). */
+  async getUserOptions(): Promise<AdminUserOption[]> {
+    return adminRepository.listUserOptions();
   }
 
   // ── Логи запросов ─────────────────────────────────────────────────────────

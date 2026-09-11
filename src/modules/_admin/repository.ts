@@ -7,8 +7,8 @@ import type {
   AdminLogsMetrics,
   AdminLogsPage,
   AdminOperationsDynamics,
+  AdminUserOption,
   AdminUserRow,
-  DatabaseSize,
   LogsAudience,
   LogsDynamicsBucket,
   LogsMethod,
@@ -206,15 +206,6 @@ export class AdminRepository {
     };
   }
 
-  /** Размер текущей базы сервера. */
-  async getDatabaseSize(): Promise<DatabaseSize> {
-    const { rows } = await pool.query<{ size_bytes: string; size_pretty: string }>(
-      `SELECT pg_database_size(current_database()) AS size_bytes,
-              pg_size_pretty(pg_database_size(current_database())) AS size_pretty`,
-    );
-    return { sizeBytes: Number(rows[0].size_bytes), sizePretty: rows[0].size_pretty };
-  }
-
   /**
    * Разбивка хранения: общий размер текущей БД + размер каждой базовой таблицы
    * схемы public (pg_total_relation_size — данные + индексы + TOAST), по
@@ -303,6 +294,17 @@ export class AdminRepository {
       ) g ON g.user_id = u.id`,
     );
     return rows[0].data ?? [];
+  }
+
+  /**
+   * Лёгкий список пользователей для селектов (id + email) без агрегатов и
+   * JOIN'ов — только отсортированный по email обход public.users.
+   */
+  async listUserOptions(): Promise<AdminUserOption[]> {
+    const { rows } = await pool.query<{ user_id: string; email: string }>(
+      `SELECT id AS user_id, email FROM public.users ORDER BY email`,
+    );
+    return rows.map((row) => ({ userId: row.user_id, email: row.email }));
   }
 
   // ── Логи запросов (public.request_logs) ────────────────────────────────────

@@ -1,12 +1,12 @@
 /**
- * Типы модуля admin: сводки дашборда, динамика операций, размер БД,
- * список пользователей, логи запросов.
+ * Типы модуля admin: сводки дашборда, динамика операций, список пользователей,
+ * логи запросов.
  * Ключи соответствуют типам клиента, которые живут в файлах его хуков:
  * AdminDashboardStats — client/src/modules/_admin/_dashboard/api/useAdminStats.ts,
  * AdminUserRow — client/src/modules/_admin/_users/api/useAdminUsers.ts,
- * форма строк логов — client/src/modules/_admin/_logs/api/useAdminLogs.ts
- * (DatabaseSize клиентом не используется: карточка «Хранилище» берёт
- * storage-breakdown), чтобы админ-панель не менялась.
+ * AdminUserOption — client/src/modules/_admin/_users/api/useAdminUserOptions.ts,
+ * форма строк логов — client/src/modules/_admin/_logs/api/useAdminLogs.ts,
+ * чтобы админ-панель не менялась.
  *
  * Права: доступ к маршрутам даёт middleware requireAdmin
  * (authenticate + JWT-claim role) в router.ts.
@@ -76,12 +76,6 @@ export interface AdminOperationsDynamics {
   total: number;
 }
 
-/** Ответ GET /admin/dashboard/database-size (admin_get_database_size). */
-export interface DatabaseSize {
-  sizeBytes: number;
-  sizePretty: string;
-}
-
 /** Размер одной таблицы БД, байты (pg_total_relation_size: данные + индексы + TOAST). */
 export interface TableStorageSize {
   name: string;
@@ -118,6 +112,16 @@ export interface AdminUserRow {
   savingsCount: number;
   accumulationsCount: number;
   goalsCount: number;
+}
+
+/**
+ * Лёгкая опция пользователя для селектов админки (GET /admin/users/options):
+ * только id и email, без агрегатов активности/сущностей — чтобы вкладка «Логи»
+ * не тянула тяжёлый GET /admin/users ради фильтра по автору.
+ */
+export interface AdminUserOption {
+  userId: string;
+  email: string;
 }
 
 // ── Логи запросов (таблица public.request_logs) ─────────────────────────────
