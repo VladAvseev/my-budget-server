@@ -2,12 +2,6 @@ import { pool } from '@/db/pool.js';
 import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { AccumulationDto, AccumulationRow, UpdateAccumulationInput } from './types.js';
 
-/**
- * Слой доступа к данным накоплений: список, создание, обновление, удаление.
- * Доступ к чужим строкам отсекает параметр userId из JWT в каждом запросе.
- */
-
-/** Строка БД → DTO ответа. */
 export function toAccumulationDto(row: AccumulationRow): AccumulationDto {
   return {
     id: row.id,
@@ -21,7 +15,6 @@ export function toAccumulationDto(row: AccumulationRow): AccumulationDto {
 }
 
 export class AccumulationsRepository {
-  /** Свои накопления, новые сверху. */
   async list(userId: string): Promise<AccumulationRow[]> {
     const { rows } = await pool.query<AccumulationRow>(
       `SELECT * FROM public.accumulations
@@ -32,7 +25,16 @@ export class AccumulationsRepository {
     return rows;
   }
 
-  /** Создание накопления: строка всегда привязана к пользователю из токена. */
+  async getTotal(userId: string): Promise<number> {
+    const { rows } = await pool.query<{ total: string }>(
+      `SELECT coalesce(sum(amount::numeric), 0) AS total
+         FROM public.accumulations
+        WHERE user_id = $1`,
+      [userId],
+    );
+    return Number(rows[0].total);
+  }
+
   async create(
     userId: string,
     amount: number,
@@ -48,10 +50,6 @@ export class AccumulationsRepository {
     return rows[0];
   }
 
-  /**
-   * Обновление с ownership-фильтром: меняются только переданные поля
-   * (PATCH-семантика), случайный null не затирает данные.
-   */
   async update(
     id: string,
     userId: string,
@@ -94,7 +92,6 @@ export class AccumulationsRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление с ownership-фильтром. */
   async remove(id: string, userId: string): Promise<boolean> {
     const { rowCount } = await pool.query(
       'DELETE FROM public.accumulations WHERE id = $1 AND user_id = $2',

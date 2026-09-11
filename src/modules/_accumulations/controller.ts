@@ -1,12 +1,7 @@
 import { accumulationsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP-слой накоплений. Маршруты закрыты `authenticate` в router.ts —
- * доступ к чужим строкам отсекает фильтр user_id в репозитории.
- */
 export class AccumulationsController {
-  /** GET /accumulations → 200: список накоплений (новые сверху). */
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const accumulations = await accumulationsService.list(req.user!.id);
@@ -16,7 +11,15 @@ export class AccumulationsController {
     }
   }
 
-  /** POST /accumulations — body: { amount, description, categoryId? } → 201 + Location. */
+  async total(req: Request, res: Response, next: NextFunction) {
+    try {
+      const total = await accumulationsService.getTotal(req.user!.id);
+      res.status(200).json({ data: total });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const accumulation = await accumulationsService.create(req.user!.id, req.body ?? {});
@@ -29,7 +32,6 @@ export class AccumulationsController {
     }
   }
 
-  /** PATCH /accumulations/:id → 200: обновлённое накопление. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const accumulation = await accumulationsService.update(
@@ -43,7 +45,6 @@ export class AccumulationsController {
     }
   }
 
-  /** DELETE /accumulations/:id → 204/404. */
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await accumulationsService.remove(req.user!.id, req.params.id);
