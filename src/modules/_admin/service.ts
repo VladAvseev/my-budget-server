@@ -2,19 +2,22 @@ import { AppError } from '@/shared/appError.js';
 import { requireUuid } from '@/shared/validate.js';
 import { adminRepository } from './repository.js';
 import type {
+  AdminChartMetric,
   AdminDashboardStats,
-  AdminDynamicsRow,
   AdminLogsDynamics,
   AdminLogsMetrics,
   AdminLogsPage,
+  AdminOperationsDynamics,
   AdminUserRow,
   DatabaseSize,
   LogsAudience,
+  LogsDynamicsBucket,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
   LogsStatusFilter,
   LogsUserFilter,
+  OperationsDynamicsAggregation,
   StorageBreakdown,
 } from './types.js';
 
@@ -27,21 +30,41 @@ import type {
  * кэш тяжёлых счётчиков).
  */
 export class AdminService {
+  /** Белые списки параметров графиков — вне списка бросаем 400. */
+  private static readonly CHART_METRICS: AdminChartMetric[] = ['count', 'unique_users'];
+  private static readonly OPERATIONS_AGGREGATIONS: OperationsDynamicsAggregation[] = [
+    'D',
+    'M',
+    'Y',
+  ];
+  private static readonly LOGS_BUCKETS: LogsDynamicsBucket[] = ['hour', 'day'];
+
   async getStats(): Promise<AdminDashboardStats> {
     return adminRepository.getStats();
   }
 
   /**
-   * GET /admin/dashboard/operations-dynamics — query: audience=all|users
-   * (по умолчанию all; users — только операции пользователей с ролью 'user').
+   * GET /admin/dashboard/operations-dynamics — query:
+   * audience=all|users, metric=count|unique_users, aggregation=D|M|Y.
    */
-  async getOperationsDynamics(query: Record<string, unknown>): Promise<AdminDynamicsRow[]> {
-    return adminRepository.getOperationsDynamics(this.parseAudience(query.audience));
+  async getOperationsDynamics(query: Record<string, unknown>): Promise<AdminOperationsDynamics> {
+    return adminRepository.getOperationsDynamics(
+      this.parseAudience(query.audience),
+      this.parseMetric(query.metric),
+      this.parseOperationsAggregation(query.aggregation),
+    );
   }
 
-  /** GET /admin/logs/dynamics — query: audience=all|users (график логов по часам/дням). */
+  /**
+   * GET /admin/logs/dynamics — query:
+   * audience=all|users, metric=count|unique_users, bucket=hour|day.
+   */
   async getLogsDynamics(query: Record<string, unknown>): Promise<AdminLogsDynamics> {
-    return adminRepository.getLogsDynamics(this.parseAudience(query.audience));
+    return adminRepository.getLogsDynamics(
+      this.parseAudience(query.audience),
+      this.parseMetric(query.metric),
+      this.parseLogsBucket(query.bucket),
+    );
   }
 
   /**
@@ -57,6 +80,42 @@ export class AdminService {
       return 'users';
     }
     throw new AppError('Недопустимый фильтр audience', 400);
+  }
+
+  /** Метрика графика: пусто/count — количество, unique_users — count(distinct user_id). */
+  private parseMetric(value: unknown): AdminChartMetric {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (raw === '' || raw === 'count') {
+      return 'count';
+    }
+    if (AdminService.CHART_METRICS.includes(raw as AdminChartMetric)) {
+      return raw as AdminChartMetric;
+    }
+    throw new AppError('Недопустимый фильтр metric', 400);
+  }
+
+  /** Гранулярность операций: пусто/D — день, M — месяц, Y — год. */
+  private parseOperationsAggregation(value: unknown): OperationsDynamicsAggregation {
+    const raw = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    if (raw === '') {
+      return 'D';
+    }
+    if (AdminService.OPERATIONS_AGGREGATIONS.includes(raw as OperationsDynamicsAggregation)) {
+      return raw as OperationsDynamicsAggregation;
+    }
+    throw new AppError('Недопустимая гранулярность aggregation', 400);
+  }
+
+  /** Гранулярность логов: пусто/hour — МСК-час, day — МСК-сутки. */
+  private parseLogsBucket(value: unknown): LogsDynamicsBucket {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (raw === '') {
+      return 'hour';
+    }
+    if (AdminService.LOGS_BUCKETS.includes(raw as LogsDynamicsBucket)) {
+      return raw as LogsDynamicsBucket;
+    }
+    throw new AppError('Недопустимая гранулярность bucket', 400);
   }
 
   async getDatabaseSize(): Promise<DatabaseSize> {

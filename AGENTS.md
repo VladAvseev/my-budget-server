@@ -147,13 +147,17 @@ src/
   `GET /admin/logs/metrics`
   (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`;
   строка с ошибкой раскрывается по клику и показывает текст ошибки).
-  График динамики логов — `GET /admin/logs/dynamics?audience=all|users`:
-  считает логи по МСК-часам (`date_trunc('hour', created_at AT TIME ZONE
+  График динамики логов —
+  `GET /admin/logs/dynamics?audience=all|users&metric=count|unique_users&bucket=hour|day`:
+  считает логи по МСК-часам или МСК-суткам (`date_trunc(..., created_at AT TIME ZONE
   'Europe/Moscow')`), аудитория `users` фильтрует по `user_role = 'user'`
-  (без админов и без неавторизованных); день клиент агрегирует из часов сам.
-  Тот же `audience=all|users` есть у `GET /admin/dashboard/operations-dynamics`
+  (без админов и без неавторизованных); метрика `unique_users` считает
+  `count(distinct user_id)` на выбранном бакете, поэтому клиент не агрегирует
+  часы в сутки суммированием.
+  Тот же набор фильтров/метрик есть у
+  `GET /admin/dashboard/operations-dynamics`
   (для `users` операции фильтруются JOIN'ом `users.role = 'user'` по
-  `operations.user_id`). `user_role` в существующих строках проставлена
+  `operations.user_id`, `aggregation=D|M|Y`). `user_role` в существующих строках проставлена
   идемпотентной миграцией `db/migrations/2026-09-11-request-logs-user-role.sql`
   через `user_id → users.role` (у неавторизованных и удалённых авторов роль
   остаётся NULL — восстановить по почте нельзя, она в логах не хранилась).

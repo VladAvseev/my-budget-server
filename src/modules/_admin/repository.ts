@@ -1,19 +1,22 @@
 import { pool } from '@/db/pool.js';
 import type {
+  AdminChartMetric,
   AdminDashboardStats,
-  AdminDynamicsRow,
   AdminLogEndpointStat,
   AdminLogsDynamics,
   AdminLogsMetrics,
   AdminLogsPage,
+  AdminOperationsDynamics,
   AdminUserRow,
   DatabaseSize,
   LogsAudience,
+  LogsDynamicsBucket,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
   LogsStatusFilter,
   LogsUserFilter,
+  OperationsDynamicsAggregation,
   StorageBreakdown,
 } from './types.js';
 
@@ -92,58 +95,113 @@ export class AdminRepository {
   }
 
   /**
-   * Количество операций по дням.
-   * created_at переводим в московское время до группировки — сутки графика
-   * считаются по МСК (график клиента построен на этом часовом поясе).
+   * Динамика операций по выбранной гранулярности.
+   * created_at переводим в московское время до группировки — периоды графика
+   * считаются по МСК. Для metric=unique_users считаем count(distinct user_id)
+   * уже на выбранной гранулярности: уникальных пользователей нельзя корректно
+   * агрегировать суммированием более мелких периодов на клиенте.
    *
    * Аудитория: 'all' — все операции (и пользователей, и админов); 'users' —
    * только тех, у кого роль 'user'. Операции привязаны к создателю через
    * operations.user_id, роль берём JOIN'ом к users (JOIN inner намеренно
    * отсекает и 'admin', и удалённых авторов).
    */
-  async getOperationsDynamics(audience: LogsAudience = 'all'): Promise<AdminDynamicsRow[]> {
+  async getOperationsDynamics(
+    audience: LogsAudience = 'all',
+    metric: AdminChartMetric = 'count',
+    aggregation: OperationsDynamicsAggregation = 'D',
+  ): Promise<AdminOperationsDynamics> {
     const roleJoin =
       audience === 'users'
         ? `JOIN public.users au ON au.id = o.user_id AND au.role = 'user'`
         : '';
-    const { rows } = await pool.query<{ day: string; operations_count: string }>(
-      `SELECT
-          (o.created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-          count(*) AS operations_count
-        FROM public.operations o
-        ${roleJoin}
-        GROUP BY 1
-        ORDER BY 1 ASC`,
-    );
-    // day — строка 'YYYY-MM-DD' (парсер DATE), count — bigint-строка.
-    return rows.map((row) => ({ day: row.day, operations_count: Number(row.operations_count) }));
+    const valueExpression = metric === 'unique_users' ? 'count(distinct o.user_id)' : 'count(*)';
+    const trunc = aggregation === 'D' ? 'day' : aggregation === 'M' ? 'month' : 'year';
+    const format = aggregation === 'D' ? 'YYYY-MM-DD' : aggregation === 'M' ? 'YYYY-MM' : 'YYYY';
+
+    const [pointsResult, totalResult] = await Promise.all([
+      pool.query<{ period: string; value: string }>(
+        `SELECT
+            to_char(
+              date_trunc($1::text, o.created_at AT TIME ZONE 'Europe/Moscow'),
+              $2
+            ) AS period,
+            ${valueExpression} AS value
+          FROM public.operations o
+          ${roleJoin}
+          GROUP BY 1
+          ORDER BY 1 ASC`,
+        [trunc, format],
+      ),
+      pool.query<{ value: string }>(
+        `SELECT ${valueExpression} AS value
+           FROM public.operations o
+           ${roleJoin}`,
+      ),
+    ]);
+
+    return {
+      audience,
+      metric,
+      aggregation,
+      points: pointsResult.rows.map((row) => ({
+        period: row.period,
+        value: Number(row.value),
+      })),
+      total: Number(totalResult.rows[0]?.value ?? 0),
+    };
   }
 
   /**
-   * Динамика количества логов по МСК-часам с фильтром по аудитории.
+   * Динамика количества логов по МСК-часам/суткам с фильтром по аудитории и
+   * метрике. Для unique_users distinct считается на выбранном бакете, поэтому
+   * сервер обязан группировать сам — клиент не должен переводить часы в сутки
+   * суммированием уникальных пользователей.
    *
-   * Возвращаем только непустые МСК-часы (клиент сам достраивает нули на пустые
-   * интервалы и агрегирует часы в сутки для режима «День»). Аудитория 'users' —
-   * строки с user_role = 'user': запросы админов и без авторизации (NULL)
-   * отсекаются.
+   * Возвращаем только непустые бакеты (клиент достраивает нули на пустые
+   * интервалы). Аудитория 'users' — строки с user_role = 'user': запросы
+   * админов и без авторизации (NULL) отсекаются.
    */
-  async getLogsDynamics(audience: LogsAudience): Promise<AdminLogsDynamics> {
-    const roleCondition =
-      audience === 'users'
-        ? `WHERE rl.user_role = 'user'`
-        : '';
-    const { rows } = await pool.query<{ hour: string; count: string }>(
-      `SELECT to_char(date_trunc('hour', rl.created_at AT TIME ZONE 'Europe/Moscow'),
-                      'YYYY-MM-DD"T"HH24:00:00') AS hour,
-              count(*) AS count
-        FROM public.request_logs rl
-        ${roleCondition}
-        GROUP BY 1
-        ORDER BY 1 ASC`,
-    );
+  async getLogsDynamics(
+    audience: LogsAudience,
+    metric: AdminChartMetric = 'count',
+    bucket: LogsDynamicsBucket = 'hour',
+  ): Promise<AdminLogsDynamics> {
+    const where = audience === 'users' ? `WHERE rl.user_role = 'user'` : '';
+    const valueExpression = metric === 'unique_users' ? 'count(distinct rl.user_id)' : 'count(*)';
+    const trunc = bucket === 'hour' ? 'hour' : 'day';
+    const format = bucket === 'hour' ? 'YYYY-MM-DD"T"HH24:00:00' : 'YYYY-MM-DD';
+
+    const [pointsResult, totalResult] = await Promise.all([
+      pool.query<{ period: string; value: string }>(
+        `SELECT
+            to_char(
+              date_trunc($1::text, rl.created_at AT TIME ZONE 'Europe/Moscow'),
+              $2
+            ) AS period,
+            ${valueExpression} AS value
+          FROM public.request_logs rl
+          ${where}
+          GROUP BY 1
+          ORDER BY 1 ASC`,
+        [trunc, format],
+      ),
+      pool.query<{ value: string }>(
+        `SELECT ${valueExpression} AS value
+           FROM public.request_logs rl
+           ${where}`,
+      ),
+    ]);
+
     return {
       audience,
-      points: rows.map((row) => ({ hour: row.hour, count: Number(row.count) })),
+      metric,
+      bucket,
+      points: pointsResult.rows.map((row) => ({
+        period: row.period,
+        value: Number(row.value),
+      })),
+      total: Number(totalResult.rows[0]?.value ?? 0),
     };
   }
 

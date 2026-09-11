@@ -52,11 +52,28 @@ export interface AdminDashboardStats {
   };
 }
 
-/** Одна точка графика динамики (admin_get_operations_dynamics). */
-export interface AdminDynamicsRow {
-  /** Ключ day/operations_count — имена колонок запроса, возвращающего таблицу. */
-  day: string;
-  operations_count: number;
+/** Метрика графиков: количество записей или уникальные авторы. */
+export type AdminChartMetric = 'count' | 'unique_users';
+
+/** Гранулярность графика динамики операций: день, месяц или год. */
+export type OperationsDynamicsAggregation = 'D' | 'M' | 'Y';
+
+/** Гранулярность графика динамики логов: МСК-час или МСК-сутки. */
+export type LogsDynamicsBucket = 'hour' | 'day';
+
+/** Одна точка графика: ключ периода (зависит от гранулярности) и значение метрики. */
+export interface AdminChartPoint {
+  period: string;
+  value: number;
+}
+
+/** Ответ GET /admin/dashboard/operations-dynamics. */
+export interface AdminOperationsDynamics {
+  audience: LogsAudience;
+  metric: AdminChartMetric;
+  aggregation: OperationsDynamicsAggregation;
+  points: AdminChartPoint[];
+  total: number;
 }
 
 /** Ответ GET /admin/dashboard/database-size (admin_get_database_size). */
@@ -128,19 +145,16 @@ export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
 export type LogsAudience = 'all' | 'users';
 
 /**
- * Одна точка графика динамики логов: бакет — МСК-час (самая мелкая гранулярность;
- * «День» клиент агрегирует из часов сам, отдельного запроса не нужно).
+ * Ответ GET /admin/logs/dynamics: точки выбранной гранулярности и общий итог.
+ * Для metric=count total — все логи, для unique_users — уникальные user_id за
+ * всё время (не сумма почасовых/суточных уникальных пользователей).
  */
-export interface AdminLogsDynamicsPoint {
-  /** Начало МСК-часа как 'YYYY-MM-DDTHH:00:00' (wall-clock Москвы, без смещения). */
-  hour: string;
-  count: number;
-}
-
-/** Ответ GET /admin/logs/dynamics. */
 export interface AdminLogsDynamics {
   audience: LogsAudience;
-  points: AdminLogsDynamicsPoint[];
+  metric: AdminChartMetric;
+  bucket: LogsDynamicsBucket;
+  points: AdminChartPoint[];
+  total: number;
 }
 
 /**

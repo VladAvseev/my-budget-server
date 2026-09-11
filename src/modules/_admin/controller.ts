@@ -16,7 +16,10 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/dashboard/operations-dynamics?audience= → 200: [{ day, operations_count }]. */
+  /**
+   * GET /admin/dashboard/operations-dynamics?audience=&metric=&aggregation=
+   * → 200: { audience, metric, aggregation, points[], total }.
+   */
   async getOperationsDynamics(req: Request, res: Response, next: NextFunction) {
     try {
       const dynamics = await adminService.getOperationsDynamics(req.query as Record<string, unknown>);
@@ -89,7 +92,10 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/logs/dynamics?audience= → 200: динамика логов по МСК-часам. */
+  /**
+   * GET /admin/logs/dynamics?audience=&metric=&bucket=
+   * → 200: { audience, metric, bucket, points[], total }.
+   */
   async getLogsDynamics(req: Request, res: Response, next: NextFunction) {
     try {
       const dynamics = await adminService.getLogsDynamics(req.query as Record<string, unknown>);
