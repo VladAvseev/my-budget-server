@@ -117,7 +117,9 @@ export class ReportsRepository {
 
   /**
    * Ветки p_has_daily_expenses true/false из update_report: включение —
-   * записать настройки, выключение — обнулить бюджет и период.
+   * записать настройки (бюджет и период), выключение — только снять флаг и
+   * обнулить бюджет. Даты периода при выключении НЕ трогаем: они нужны
+   * списку отчётов и главной (исторически их ошибочно обнуляли).
    */
   async setDailyExpenses(
     id: string,
@@ -130,20 +132,13 @@ export class ReportsRepository {
     const { rows } = await pool.query<ReportRow>(
       `UPDATE public.reports
        SET has_daily_expenses = $3,
-           daily_budget = $4,
-           period_start = $5,
-           period_end = $6,
+           daily_budget = CASE WHEN $3 THEN $4 ELSE NULL END,
+           period_start = CASE WHEN $3 THEN $5 ELSE period_start END,
+           period_end = CASE WHEN $3 THEN $6 ELSE period_end END,
            updated_at = now()
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
-      [
-        id,
-        userId,
-        enabled,
-        enabled ? dailyBudget : null,
-        enabled ? periodStart : null,
-        enabled ? periodEnd : null,
-      ],
+      [id, userId, enabled, enabled ? dailyBudget : null, periodStart, periodEnd],
     );
     return rows[0] ?? null;
   }
@@ -276,8 +271,9 @@ export class ReportsRepository {
   }
 
   /**
-   * Отключение daily-режима: удаление daily-операций + сброс настроек —
-   * оба statement'а в одной транзакции.
+   * Отключение daily-режима: удаление daily-операций + сброс флага и бюджета —
+   * оба statement'а в одной транзакции. Даты периода НЕ трогаем (см.
+   * setDailyExpenses).
    */
   async disableDailyExpenses(reportId: string): Promise<void> {
     await withTransaction(async (client) => {
@@ -288,8 +284,6 @@ export class ReportsRepository {
         `UPDATE public.reports
          SET has_daily_expenses = false,
              daily_budget = null,
-             period_start = null,
-             period_end = null,
              updated_at = now()
          WHERE id = $1`,
         [reportId],
