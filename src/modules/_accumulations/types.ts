@@ -22,6 +22,12 @@ export interface AccumulationsTotal {
   total: number;
 }
 
+/** Точка помесячной динамики роста: месяц 'YYYY-MM' + нетто накоплений (пополнения минус снятия). */
+export interface GrowthMonthDto {
+  month: string;
+  savings: number;
+}
+
 export interface CreateAccumulationInput {
   amount: number;
   description: string;

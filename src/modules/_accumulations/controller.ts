@@ -20,6 +20,15 @@ export class AccumulationsController {
     }
   }
 
+  async dynamics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const months = await accumulationsService.getGrowthDynamics(req.user!.id);
+      res.status(200).json({ data: months });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const accumulation = await accumulationsService.create(req.user!.id, req.body ?? {});

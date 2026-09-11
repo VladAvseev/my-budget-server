@@ -10,6 +10,8 @@ accumulationsRouter.get('/', accumulationsController.list);
 
 accumulationsRouter.get('/total', accumulationsController.total);
 
+accumulationsRouter.get('/dynamics', accumulationsController.dynamics);
+
 accumulationsRouter.post('/', accumulationsController.create);
 
 accumulationsRouter.patch('/:id', accumulationsController.update);

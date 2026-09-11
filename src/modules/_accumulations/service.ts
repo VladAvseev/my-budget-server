@@ -2,7 +2,12 @@ import { categoriesRepository } from '@/modules/_categories/repository.js';
 import { AppError } from '@/shared/appError.js';
 import { requireAmount, requireNonEmptyString, requireUuid } from '@/shared/validate.js';
 import { accumulationsRepository, toAccumulationDto } from './repository.js';
-import type { AccumulationDto, AccumulationsTotal, UpdateAccumulationInput } from './types.js';
+import type {
+  AccumulationDto,
+  AccumulationsTotal,
+  GrowthMonthDto,
+  UpdateAccumulationInput,
+} from './types.js';
 
 const SAVINGS_CATEGORY_TYPE = 'savings' as const;
 
@@ -15,6 +20,10 @@ export class AccumulationsService {
   async getTotal(userId: string): Promise<AccumulationsTotal> {
     const total = await accumulationsRepository.getTotal(userId);
     return { total };
+  }
+
+  async getGrowthDynamics(userId: string): Promise<GrowthMonthDto[]> {
+    return accumulationsRepository.listGrowthDynamics(userId);
   }
 
   async create(userId: string, body: Record<string, unknown>): Promise<AccumulationDto> {

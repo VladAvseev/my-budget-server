@@ -8,6 +8,9 @@ import type { GoalDto, GoalRow, UpdateGoalInput } from './types.js';
  * на категорию».
  */
 
+/** Явные колонки вместо SELECT *: состав не зависит от эволюции схемы. */
+const GOAL_COLUMNS = `id, user_id, category_id, amount, target_date, created_at, updated_at`;
+
 /** Строка БД → DTO ответа. */
 export function toGoalDto(row: GoalRow): GoalDto {
   return {
@@ -25,7 +28,7 @@ export class GoalsRepository {
   /** get_goals(p_user_id): свои цели, новые сверху. */
   async list(userId: string): Promise<GoalRow[]> {
     const { rows } = await pool.query<GoalRow>(
-      `SELECT * FROM public.goals
+      `SELECT ${GOAL_COLUMNS} FROM public.goals
        WHERE user_id = $1
        ORDER BY created_at DESC`,
       [userId],
@@ -41,7 +44,7 @@ export class GoalsRepository {
     const { rows } = await pool.query<GoalRow>(
       `INSERT INTO public.goals (user_id, category_id, amount, target_date)
        VALUES ($1, $2, $3, $4)
-       RETURNING *`,
+       RETURNING ${GOAL_COLUMNS}`,
       [userId, input.categoryId, input.amount, input.targetDate],
     );
     return rows[0];
@@ -63,7 +66,7 @@ export class GoalsRepository {
 
     if (sets.length === 0) {
       const { rows } = await pool.query<GoalRow>(
-        'SELECT * FROM public.goals WHERE id = $1 AND user_id = $2',
+        `SELECT ${GOAL_COLUMNS} FROM public.goals WHERE id = $1 AND user_id = $2`,
         [id, userId],
       );
       return rows[0] ?? null;
@@ -76,7 +79,7 @@ export class GoalsRepository {
       `UPDATE public.goals
        SET ${sets.join(', ')}
        WHERE id = $${values.length - 1} AND user_id = $${values.length}
-       RETURNING *`,
+       RETURNING ${GOAL_COLUMNS}`,
       values,
     );
     return rows[0] ?? null;
