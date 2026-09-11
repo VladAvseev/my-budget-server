@@ -3,6 +3,7 @@ import type { OperationRow } from '@/modules/_operations/types.js';
 import { toIsoString, toNumber, toNumberOrNull } from '@/shared/serialize.js';
 import { withTransaction } from '@/shared/transaction.js';
 import type {
+  CapitalMonthDto,
   CategoryLimitDto,
   CategoryLimitItem,
   CategoryLimitRow,
@@ -190,6 +191,44 @@ export class ReportsRepository {
       savings: Number(row.savings),
       daily: Number(row.daily),
     };
+  }
+
+  /**
+   * Помесячная динамика капитала для графика overview: income - expense - daily,
+   * свёрнутый в месяц начала периода отчёта, с нулевыми месяцами-заполнителями
+   * от первого отчёта до текущего месяца. Клиент лишь кумулирует и добавляет
+   * базу (стартовый баланс + накопления) — сырые операции на график не качаем.
+   */
+  async listCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
+    const { rows } = await pool.query<{ month: string; delta: string }>(
+      `WITH bounds AS (
+         SELECT date_trunc('month', min(period_start)) AS first_month,
+                date_trunc('month', CURRENT_DATE)      AS current_month
+           FROM public.reports
+          WHERE user_id = $1
+       ),
+       by_month AS (
+         SELECT date_trunc('month', r.period_start) AS month,
+                coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)
+                  - coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0)
+                  - coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'daily'), 0) AS delta
+           FROM public.operations o
+           JOIN public.reports r ON r.id = o.report_id
+          WHERE o.user_id = $1
+            AND r.period_start IS NOT NULL
+          GROUP BY 1
+       )
+       SELECT to_char(gs.month, 'YYYY-MM') AS month,
+              coalesce(b.delta, 0)        AS delta
+         FROM bounds bo
+         CROSS JOIN LATERAL generate_series(
+           bo.first_month, bo.current_month, interval '1 month'
+         ) AS gs(month)
+         LEFT JOIN by_month b ON b.month = gs.month
+        ORDER BY gs.month`,
+      [userId],
+    );
+    return rows.map((row) => ({ month: row.month, delta: Number(row.delta) }));
   }
 
   /** Лимиты категорий отчёта в порядке создания (старые сверху). */

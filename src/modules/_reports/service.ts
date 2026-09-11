@@ -10,7 +10,13 @@ import {
   requireUuid,
 } from '@/shared/validate.js';
 import { reportsRepository, toCategoryLimitDto, toReportDto } from './repository.js';
-import type { CategoryLimitDto, CategoryLimitItem, ReportDto, ReportSummary } from './types.js';
+import type {
+  CapitalMonthDto,
+  CategoryLimitDto,
+  CategoryLimitItem,
+  ReportDto,
+  ReportSummary,
+} from './types.js';
 
 /**
  * Бизнес-логика отчётов: создание/обновление, сводки, лимиты категорий
@@ -156,6 +162,11 @@ export class ReportsService {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);
     return reportsRepository.getSummary(reportId);
+  }
+
+  /** GET /reports/capital-dynamics: помесячная дельта капитала пользователя. */
+  async getCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
+    return reportsRepository.listCapitalDynamics(userId);
   }
 
   /** GET /reports/:id/category-limits. */

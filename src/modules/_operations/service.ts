@@ -11,6 +11,7 @@ import {
 import { operationsRepository, toOperationDto } from './repository.js';
 import { OPERATION_TYPES } from './types.js';
 import type {
+  CategorySummaryRowDto,
   OperationDto,
   OperationType,
   OverviewOperationDto,
@@ -64,6 +65,21 @@ export class OperationsService {
       .map((id) => id.trim())
       .filter(isUuid);
     return operationsRepository.listByReports(reportIds, userId);
+  }
+
+  /** GET /operations/category-summary?reportIds=a,b,c: серверная сводка по категориям. */
+  async getCategorySummary(
+    userId: string,
+    query: Record<string, unknown>,
+  ): Promise<CategorySummaryRowDto[]> {
+    if (typeof query.reportIds !== 'string' || query.reportIds === '') {
+      return [];
+    }
+    const reportIds = query.reportIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter(isUuid);
+    return operationsRepository.categorySummary(reportIds, userId);
   }
 
   /** GET /operations/savings (карточка «Накопления»). */

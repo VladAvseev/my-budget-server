@@ -13,6 +13,11 @@ reportsRouter.use(authenticate);
 // (GrowthDynamicsCard, GoalsSection).
 reportsRouter.get('/', reportsController.list);
 
+// GET /reports/capital-dynamics (хук useCapitalDynamics): помесячная дельта
+// капитала для графика на главной. Обязан стоять до /:id, иначе Express
+// примет 'capital-dynamics' за id отчёта.
+reportsRouter.get('/capital-dynamics', reportsController.getCapitalDynamics);
+
 // POST /reports (хук useCreateReport): создание отчёта
 // из модалки CreateReportModal на странице «Отчёты»
 // (name, code периода, настройки daily-расходов, период start/end).

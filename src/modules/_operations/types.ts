@@ -61,6 +61,17 @@ export interface OverviewOperationDto {
   category_id: string | null;
 }
 
+/**
+ * Ответ GET /operations/category-summary: суммы операций, свёрнутые сервером
+ * по отчёту, типу и категории.
+ */
+export interface CategorySummaryRowDto {
+  report_id: string;
+  type: OperationType;
+  amount: number;
+  category_id: string | null;
+}
+
 /** Доп. поля строки-операции из JOIN с reports. */
 export interface SavingsOperationRow extends OperationRow {
   report_name: string;

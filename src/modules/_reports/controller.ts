@@ -67,6 +67,16 @@ export class ReportsController {
     }
   }
 
+  /** GET /reports/capital-dynamics → 200: [{ month, delta }]. */
+  async getCapitalDynamics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const months = await reportsService.getCapitalDynamics(req.user!.id);
+      res.status(200).json({ data: months });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /** GET /reports/:id/category-limits → 200: лимиты отчёта. */
   async getCategoryLimits(req: Request, res: Response, next: NextFunction) {
     try {

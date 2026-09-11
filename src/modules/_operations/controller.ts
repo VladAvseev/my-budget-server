@@ -29,6 +29,16 @@ export class OperationsController {
     }
   }
 
+  /** GET /operations/category-summary?reportIds= → 200: сводка по категориям. */
+  async getCategorySummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const summary = await operationsService.getCategorySummary(req.user!.id, { ...req.query });
+      res.status(200).json({ data: summary });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /** POST /operations — body: { reportId, type, amount, categoryId?, description?, date? } → 201. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {

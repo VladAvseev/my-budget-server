@@ -13,10 +13,9 @@ operationsRouter.use(authenticate);
 // ('savings,savings_out') — обе savings-ветки одной вкладкой одним запросом.
 // Вкладки «Доходы», «Расходы», «Накопления», «Ежедневные» на странице отчёта
 // (OperationList, DailyOperationsTab).
-// GET /operations?reportIds={id1,id2,...} (хук useOverviewOperationsMap):
-// операции по набору отчётов для карты операций
-// в overview и графиков динамики на странице накоплений
-// (GrowthDynamicsCard, GoalsSection).
+// GET /operations?reportIds={id1,id2,...}: операции по набору отчётов
+// (исторический режим для overview; сам overview теперь берёт
+// GET /operations/category-summary).
 operationsRouter.get('/', operationsController.list);
 
 // GET /operations/savings (хук useSavingsOperations): все пополнения и снятия
@@ -24,6 +23,10 @@ operationsRouter.get('/', operationsController.list);
 // с названием и периодом отчёта. Карточка «Накопления» на главной
 // (AccumulationsCard), список операций накоплений и GoalsSection.
 operationsRouter.get('/savings', operationsController.getSavings);
+
+// GET /operations/category-summary?reportIds= (хук useOverviewCategorySummary):
+// серверная сводка сумм по отчёту/типу/категории для аналитики на главной.
+operationsRouter.get('/category-summary', operationsController.getCategorySummary);
 
 // POST /operations (хук useCreateOperation): создание
 // операции внутри отчёта из формы OperationForm на странице отчёта

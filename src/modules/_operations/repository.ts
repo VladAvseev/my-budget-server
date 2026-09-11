@@ -2,6 +2,7 @@ import { pool } from '@/db/pool.js';
 import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { PoolClient } from 'pg';
 import type {
+  CategorySummaryRowDto,
   CreateOperationInput,
   OperationDto,
   OperationRow,
@@ -88,6 +89,39 @@ export class OperationsRepository {
       `SELECT report_id, type, amount, category_id
        FROM public.operations
        WHERE report_id = ANY($1::uuid[]) AND user_id = $2`,
+      [reportIds, userId],
+    );
+    return rows.map((row) => ({
+      report_id: row.report_id,
+      type: row.type,
+      amount: toNumber(row.amount),
+      category_id: row.category_id,
+    }));
+  }
+
+  /**
+   * Сводка по набору отчётов: суммы, свёрнутые сервером по report_id, type и
+   * category_id. Фильтр по user_id не даёт вытащить чужие отчёты — они молча
+   * выпадают из выборки.
+   */
+  async categorySummary(
+    reportIds: string[],
+    userId: string,
+  ): Promise<CategorySummaryRowDto[]> {
+    if (reportIds.length === 0) {
+      return [];
+    }
+    const { rows } = await pool.query<{
+      report_id: string;
+      type: OperationType;
+      amount: string;
+      category_id: string | null;
+    }>(
+      `SELECT report_id, type, category_id,
+              coalesce(sum(amount::numeric), 0) AS amount
+         FROM public.operations
+        WHERE report_id = ANY($1::uuid[]) AND user_id = $2
+        GROUP BY report_id, type, category_id`,
       [reportIds, userId],
     );
     return rows.map((row) => ({
