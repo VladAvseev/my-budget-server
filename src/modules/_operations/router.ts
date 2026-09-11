@@ -7,11 +7,12 @@ export const operationsRouter = Router();
 // Все маршруты требуют Bearer access-токен: операции видны только их владельцу.
 operationsRouter.use(authenticate);
 
-// GET /operations?reportId={id}&type={type} (хук useOperations): операции одного
-// отчёта, отфильтрованные по типу
-// (income/expense/savings/savings_out/daily). Вкладки «Доходы», «Расходы»,
-// «Накопления», «Ежедневные» на странице отчёта (OperationList,
-// DailyOperationsTab).
+// GET /operations?reportId={id}&type={type} (хуки useOperations, useSavingsReportOperations):
+// операции одного отчёта, отфильтрованные по типу
+// (income/expense/savings/savings_out/daily). type допускает csv
+// ('savings,savings_out') — обе savings-ветки одной вкладкой одним запросом.
+// Вкладки «Доходы», «Расходы», «Накопления», «Ежедневные» на странице отчёта
+// (OperationList, DailyOperationsTab).
 // GET /operations?reportIds={id1,id2,...} (хук useOverviewOperationsMap):
 // операции по набору отчётов для карты операций
 // в overview и графиков динамики на странице накоплений

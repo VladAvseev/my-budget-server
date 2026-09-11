@@ -28,7 +28,9 @@ import type {
 export class OperationsService {
   /**
    * GET /operations — два режима:
-   *  1. ?reportId=&type=  → операции одного отчёта;
+   *  1. ?reportId=&type=  → операции одного отчёта; type допускает
+   *     csv ('savings,savings_out') — так клиент забирает обе savings-ветки
+   *     одним запросом;
    *  2. ?reportIds=a,b,c  → сводка по набору отчётов для overview.
    */
   async list(
@@ -39,15 +41,16 @@ export class OperationsService {
       return this.listByReports(query.reportIds, userId);
     }
 
-    const reportId = requireUuid(query.reportId);
-    const type = requireEnum<OperationType>(
-      query.type,
-      OPERATION_TYPES,
-      'Некорректный тип операции',
+    if (typeof query.type !== 'string' || query.type === '') {
+      throw new AppError('Некорректный тип операции', 400);
+    }
+    const reportId = requireUuid(query.reportId, 'Некорректный идентификатор отчёта');
+    const types = query.type.split(',').map((part) =>
+      requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
     );
 
     await this.assertReport(reportId, userId);
-    const rows = await operationsRepository.listByReport(reportId, type);
+    const rows = await operationsRepository.listByReport(reportId, types);
     return rows.map(toOperationDto);
   }
 

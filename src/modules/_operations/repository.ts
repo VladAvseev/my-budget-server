@@ -52,18 +52,20 @@ export class OperationsRepository {
   }
 
   /**
-   * Операции одного отчёта по типу. Порядок: для daily — по дате расхода
-   * (nulls last), для остальных типов — по времени создания; оба desc.
+   * Операции одного отчёта по одному или нескольким типам. Порядок: для
+   * одиночного daily — по дате расхода (nulls last), для остальных —
+   * по времени создания; оба desc.
    */
-  async listByReport(reportId: string, type: OperationType): Promise<OperationRow[]> {
+  async listByReport(reportId: string, types: OperationType[]): Promise<OperationRow[]> {
+    const dailyOnly = types.length === 1 && types[0] === 'daily';
     const { rows } = await pool.query<OperationRow>(
       `SELECT ${OPERATION_COLUMNS}
        FROM public.operations
-       WHERE report_id = $1 AND type = $2
+       WHERE report_id = $1 AND type = ANY($2::text[])
        ORDER BY
-         (CASE WHEN $2 = 'daily' THEN date ELSE NULL END) DESC NULLS LAST,
+         (CASE WHEN $3 THEN date ELSE NULL END) DESC NULLS LAST,
          created_at DESC`,
-      [reportId, type],
+      [reportId, types, dailyOnly],
     );
     return rows;
   }

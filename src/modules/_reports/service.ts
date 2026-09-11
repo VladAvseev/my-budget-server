@@ -264,7 +264,7 @@ export class ReportsService {
   }
 
   private async assertReport(reportId: string, userId: string): Promise<void> {
-    if (!(await reportsRepository.getById(reportId, userId))) {
+    if (!(await reportsRepository.existsOwned(reportId, userId))) {
       throw new AppError(NOT_FOUND, 404);
     }
   }

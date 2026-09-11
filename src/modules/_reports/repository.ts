@@ -74,6 +74,15 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
+  /** Дешёвая проверка владения для assertReport (без чтения всей строки). */
+  async existsOwned(id: string, userId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      'SELECT 1 FROM public.reports WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    return rows.length > 0;
+  }
+
   /** Проверка уникальности кода периода до вставки (пустой код не учитывается). */
   async codeExists(userId: string, code: string): Promise<boolean> {
     const { rows } = await pool.query(
@@ -205,7 +214,8 @@ export class ReportsRepository {
 
   /**
    * Полная замена лимитов категорий в ОДНОЙ транзакции: pool.query без BEGIN
-   * оставил бы отчёт без лимитов при падении вставки.
+   * оставил бы отчёт без лимитов при падении вставки. Все строки — одним
+   * multi-values INSERT (цикл по одному запросу давал N round-trip).
    */
   async replaceCategoryLimits(
     reportId: string,
@@ -216,11 +226,16 @@ export class ReportsRepository {
       await client.query('DELETE FROM public.category_limits WHERE report_id = $1', [reportId]);
 
       // Пустой список = «лимиты сброшены», дальше вставлять нечего.
-      for (const item of limits) {
+      if (limits.length > 0) {
+        const values: unknown[] = [reportId, userId];
+        const tuples = limits.map((item) => {
+          values.push(item.categoryId, item.amount);
+          return `($1, $${values.length - 1}, $2, $${values.length})`;
+        });
         await client.query(
           `INSERT INTO public.category_limits (report_id, category_id, user_id, amount)
-           VALUES ($1, $2, $3, $4)`,
-          [reportId, item.categoryId, userId, item.amount],
+           VALUES ${tuples.join(', ')}`,
+          values,
         );
       }
 
