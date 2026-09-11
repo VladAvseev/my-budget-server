@@ -22,3 +22,8 @@ usersRouter.get('/me/onboarding', usersController.getOnboardingState);
 // GET /users/me/summary (useGlobalBalance):
 // суммы операций по всем отчётам пользователя.
 usersRouter.get('/me/summary', usersController.getSummary);
+
+// GET /users/me/bootstrap (useBootstrap, главная):
+// профиль-срез, онбординг-счётчики, последний период со сводкой, глобальные
+// суммы, структура накоплений и цели — один CTE-запрос вместо ~8 запросов.
+usersRouter.get('/me/bootstrap', usersController.getBootstrap);

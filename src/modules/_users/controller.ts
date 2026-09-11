@@ -47,6 +47,16 @@ export class UsersController {
       next(error);
     }
   }
+
+  /** GET /users/me/bootstrap → 200: все цифры главной за один round-trip. */
+  async getBootstrap(req: Request, res: Response, next: NextFunction) {
+    try {
+      const bootstrap = await usersService.getBootstrap(req.user!.id);
+      res.status(200).json({ data: bootstrap });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const usersController = new UsersController();

@@ -1,6 +1,12 @@
 import { usersRepository, toPublicUser } from './repository.js';
 import { AppError } from '@/shared/appError.js';
-import type { OnboardingState, PublicUser, UpdateProfileInput, UserSummary } from './types.js';
+import type {
+  HomeBootstrap,
+  OnboardingState,
+  PublicUser,
+  UpdateProfileInput,
+  UserSummary,
+} from './types.js';
 
 /**
  * Бизнес-логика профиля пользователя.
@@ -69,6 +75,15 @@ export class UsersService {
   /** Глобальная сводка сумм по всем отчётам (AppLayout, useGlobalBalance). */
   async getSummary(userId: string): Promise<UserSummary> {
     return usersRepository.getSummary(userId);
+  }
+
+  /** GET /users/me/bootstrap — все цифры главной одним ответом. */
+  async getBootstrap(userId: string): Promise<HomeBootstrap> {
+    const bootstrap = await usersRepository.getHomeBootstrap(userId);
+    if (!bootstrap) {
+      throw new AppError('Пользователь не найден', 404);
+    }
+    return bootstrap;
   }
 }
 

@@ -70,3 +70,54 @@ export interface UserSummary {
   /** расходы из дневного бюджета. */
   daily: number;
 }
+
+/**
+ * Ответ GET /users/me/bootstrap — все «цифры» главной за один round-trip.
+ * Агрегаты считает PostgreSQL (один CTE-запрос); карточки клиента читают
+ * срезы этого DTO. Гранулярные эндпоинты (/reports, /accumulations, …)
+ * остаются для своих страниц — bootstrap только для главной.
+ */
+export interface HomeBootstrap {
+  /** Срез профиля, нужный главной (остальное — в PublicUser). */
+  profile: {
+    startBalance: number;
+    currency: string | null;
+    onboarded: boolean;
+  };
+  /** Счётчики онбординг-чеклиста (та же форма, что у /users/me/onboarding). */
+  onboarding: OnboardingState;
+  /** Карточка «Последний период»: отчёт с максимальной period_end + его сводка. */
+  lastReport: BootstrapLastReport | null;
+  /** Глобальные суммы по всем операциям + сумма накоплений (стартовый капитал). */
+  globalTotals: UserSummary & { accumulationsTotal: number };
+  /** Структура накоплений по категориям (карточка «Накопления»). */
+  savingsStructure: BootstrapSavingsItem[];
+  /** Цели без вычислений: общий прогресс считает клиент (shared/utils/goals.ts). */
+  goals: BootstrapGoalItem[];
+}
+
+/** Элемент lastReport в bootstrap: ключи отчёта — как в _reports.ReportDto. */
+export interface BootstrapLastReport {
+  id: string;
+  name: string;
+  /** 'YYYY-MM-DD' | null (DATE-парсер отключён в pool.ts). */
+  period_start: string | null;
+  period_end: string | null;
+  /** Сводка сумм по типам операций отчёта (форма _reports.ReportSummary). */
+  summary: UserSummary;
+}
+
+/** Элемент savingsStructure: сумма accumulations + знаковых savings-операций. */
+export interface BootstrapSavingsItem {
+  /** null — накопления без категории (лейбл рисует клиент). */
+  categoryId: string | null;
+  name: string | null;
+  color: string | null;
+  amount: number;
+}
+
+/** Элемент goals: unique(user_id, category_id) — одна цель на категорию. */
+export interface BootstrapGoalItem {
+  categoryId: string;
+  amount: number;
+}
