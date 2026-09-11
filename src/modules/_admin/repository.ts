@@ -11,6 +11,7 @@ import type {
   DatabaseSize,
   LogsAudience,
   LogsDynamicsBucket,
+  LogsMethod,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
@@ -309,7 +310,8 @@ export class AdminRepository {
   /**
    * Страница логов для админки. Фильтр по статусу — whitelist из
    * LogsStatusFilter, мапится в условие status < 400 / >= 400; фильтр по
-   * автору — LogsUserFilter (все / без авторизации / конкретный пользователь).
+   * автору — LogsUserFilter (все / без авторизации / конкретный пользователь);
+   * фильтр по методам — whitelist LogsMethod (пустой список — без фильтра).
    * Сортировка — whitelist LogsSortField/LogsSortOrder (колонка подставляется
    * из маппинга, не из строки клиента), tie-breaker id DESC для стабильной
    * пагинации при одинаковых duration_ms. Email автора тянется LEFT JOIN по
@@ -318,6 +320,7 @@ export class AdminRepository {
   async getLogs(
     filter: LogsStatusFilter,
     user: LogsUserFilter,
+    methods: LogsMethod[],
     page: number,
     limit: number,
     sort: LogsSortField = 'date',
@@ -337,6 +340,10 @@ export class AdminRepository {
     } else if (user.kind === 'user') {
       params.push(user.userId);
       conditions.push(`rl.user_id = $${params.length}`);
+    }
+    if (methods.length > 0) {
+      params.push(methods);
+      conditions.push(`rl.method = ANY($${params.length}::text[])`);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 

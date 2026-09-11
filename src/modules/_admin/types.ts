@@ -125,6 +125,9 @@ export interface AdminUserRow {
 /** Фильтр списка логов: все / только успешные (<400) / только с ошибкой (≥400). */
 export type LogsStatusFilter = 'all' | 'success' | 'error';
 
+/** Допустимые значения фильтра methods в GET /admin/logs (пустой список — все). */
+export type LogsMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
 /**
  * Фильтр логов по автору (query `userId` в GET /admin/logs):
  *   * all       — без фильтра;

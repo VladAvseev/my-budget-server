@@ -12,6 +12,7 @@ import type {
   DatabaseSize,
   LogsAudience,
   LogsDynamicsBucket,
+  LogsMethod,
   LogsPeriod,
   LogsSortField,
   LogsSortOrder,
@@ -150,6 +151,7 @@ export class AdminService {
 
   /** Белые списки значений фильтров — вне списка бросаем 400. */
   private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = ['all', 'success', 'error'];
+  private static readonly LOG_METHODS: LogsMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
   private static readonly LOG_PERIODS: LogsPeriod[] = ['24h', '7d', '30d', 'all'];
   private static readonly LOG_SORT_FIELDS: LogsSortField[] = ['date', 'duration'];
   private static readonly LOG_SORT_ORDERS: LogsSortOrder[] = ['asc', 'desc'];
@@ -159,7 +161,8 @@ export class AdminService {
 
   /**
    * GET /admin/logs — query: status=all|success|error, userId=<uuid>|anonymous,
-   * page, limit, sort=date|duration, order=asc|desc.
+   * methods=GET,POST (пусто — все методы), page, limit, sort=date|duration,
+   * order=asc|desc.
    */
   async listLogs(query: Record<string, unknown>): Promise<AdminLogsPage> {
     const status = (query.status ?? 'all') as string;
@@ -168,6 +171,7 @@ export class AdminService {
     }
 
     const user = this.parseLogsUserFilter(query.userId);
+    const methods = this.parseLogsMethods(query.methods);
 
     const sort = (query.sort ?? 'date') as string;
     if (!AdminService.LOG_SORT_FIELDS.includes(sort as LogsSortField)) {
@@ -184,11 +188,31 @@ export class AdminService {
     return adminRepository.getLogs(
       status as LogsStatusFilter,
       user,
+      methods,
       page,
       limit,
       sort as LogsSortField,
       order as LogsSortOrder,
     );
+  }
+
+  /**
+   * Разбор фильтра по HTTP-методам: query `methods=GET,POST` (регистр не
+   * важен). Пусто — без фильтра; значение вне белого списка = 400.
+   */
+  private parseLogsMethods(value: unknown): LogsMethod[] {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if (raw === '') {
+      return [];
+    }
+    const methods = raw
+      .split(',')
+      .map((part) => part.trim().toUpperCase())
+      .filter((part) => part !== '');
+    if (methods.some((method) => !AdminService.LOG_METHODS.includes(method as LogsMethod))) {
+      throw new AppError('Недопустимый фильтр methods', 400);
+    }
+    return [...new Set(methods)] as LogsMethod[];
   }
 
   /**

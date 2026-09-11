@@ -142,7 +142,8 @@ src/
   `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
   строки middleware удаляет сам, вероятностно ~1 раз на 200 запросов).
   Просмотр/метрики — `GET /admin/logs` (фильтры `status`, `userId=<uuid>` или
-  `userId=anonymous` — только запросы без авторизации; сортировка
+  `userId=anonymous` — только запросы без авторизации, `methods=GET,POST` —
+  список HTTP-методов через запятую, пусто — все; сортировка
   `sort=date|duration` + `order=asc|desc`, по умолчанию свежие сверху),
   `GET /admin/logs/metrics`
   (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`;
