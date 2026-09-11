@@ -24,6 +24,8 @@ create table public.users (
   currency text,
   onboarded boolean not null default false,
   last_active_at timestamptz,  -- отмечает authMiddleware при авторизованных запросах
+  failed_login_attempts integer not null default 0,  -- неудачные входы подряд (см. _auth/service.ts)
+  locked_until timestamptz,    -- до этого момента вход в аккаунт запрещён (временный блок)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

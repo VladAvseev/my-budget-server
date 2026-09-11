@@ -17,13 +17,14 @@ authRouter.post('/login', authRateLimitMiddleware, authController.login);
 
 // POST /auth/refresh - тело: { refreshToken }.
 // Обновление пары токенов с ротацией: старый refresh отзывается,
-// выдаётся новая пара.
-authRouter.post('/refresh', authController.refresh);
+// выдаётся новая пара. Лимит нужен, чтобы спам ротацией не долбил БД
+// (каждый refresh = read + 2 write) и не мешал детекции переиспользования.
+authRouter.post('/refresh', authRateLimitMiddleware, authController.refresh);
 
 // POST /auth/logout - тело: { refreshToken } → 204.
 // Отзыв текущей сессии, другие устройства живы.
 // Bearer не требуется: доказательство владения сессией — сам refresh-токен.
-authRouter.post('/logout', authController.logout);
+authRouter.post('/logout', authRateLimitMiddleware, authController.logout);
 
 // PATCH /auth/password - тело: { newPassword }, обязателен Bearer access-токен.
 // Новый bcrypt-хэш + отзыв всех refresh-токенов (logout на остальных устройствах).

@@ -18,6 +18,10 @@ export interface UserRow {
   currency: string | null;
   onboarded: boolean;
   last_active_at: Date | null;
+  /** Счётчик неудачных входов подряд (временная блокировка, логика в _auth/service.ts). */
+  failed_login_attempts: number;
+  /** До какого момента вход заблокирован; null — блокировки нет. */
+  locked_until: Date | null;
   created_at: Date;
   updated_at: Date;
 }

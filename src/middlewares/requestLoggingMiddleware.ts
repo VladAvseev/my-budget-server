@@ -24,8 +24,10 @@ import type { NextFunction, Request, Response } from 'express';
  * Логирование НЕ блокирует запрос: вставка fire-and-forget, ошибка записи
  * выводится в stderr и не влияет на ответ клиенту.
  *
- * Не логируем health-check и всю админ-панель (/api/v1/admin/*) — иначе
- * админка шумела бы сама от себя своими опросами.
+ * Не логируем GET'ы админ-панели (/api/v1/admin/*) — иначе дашборд, список
+ * пользователей и просмотр логов заполняли бы request_logs сами себя.
+ * Не-GET админ-запросы (например, DELETE /admin/users/:id) пишем как audit
+ * trail: destructive-действия админа должны оставлять след (user_id, роль, ip).
  *
  * Настройки (.env, с дефолтами ниже):
  *   LOG_RETENTION_DAYS=30    — сколько дней хранить логи.
@@ -34,15 +36,8 @@ import type { NextFunction, Request, Response } from 'express';
 /** Сколько дней держим строки в request_logs. */
 const RETENTION_DAYS = Number(process.env.LOG_RETENTION_DAYS) || 30;
 
-/** Точные пути, которые не логируем. */
-const SKIPPED_PATHS = new Set(['/api/v1/health']);
-
-/**
- * Префиксы, которые не логируем целиком: вся админ-панель (/api/v1/admin/*) —
- * иначе дашборд, список пользователей и просмотр логов заполняли бы
- * request_logs только своими опросами.
- */
-const SKIPPED_PREFIXES = ['/api/v1/admin'];
+/** Префикс админ-панели: её GET'ы не логируем (см. шапку), мутации — логируем. */
+const ADMIN_PREFIX = '/api/v1/admin';
 
 /** Максимальная длина сохраняемого текста ошибки (страховка от простыней). */
 const ERROR_LIMIT = 512;
@@ -114,10 +109,8 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
   const basePath = req.baseUrl || ''; // при монтировании /api/v1 — '/api/v1'
   const fullPath = basePath + req.path;
 
-  if (
-    SKIPPED_PATHS.has(fullPath) ||
-    SKIPPED_PREFIXES.some((prefix) => fullPath.startsWith(prefix))
-  ) {
+  // Опросы админки (GET) не пишем, её мутации — пишем (audit trail).
+  if (fullPath.startsWith(ADMIN_PREFIX) && req.method === 'GET') {
     return next();
   }
 

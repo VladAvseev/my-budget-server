@@ -17,7 +17,14 @@ export const app = express();
 app.set('trust proxy', 2);
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+// CORS нужен ТОЛЬКО браузерным запросам с другого origin. Прод-топология
+// same-origin (nginx web-контейнера проксирует /api/ на этот сервер), поэтому
+// по умолчанию заголовок Access-Control-Allow-Origin не отдаётся вообще и
+// чужие сайты API не читают. CORS_ORIGIN задавать точным origin ('https://домен',
+// без завершающего слэша) только если клиент уедет на отдельный домен.
+// Раньше здесь был дефолт '*', который бесплатно открывал публичные эндпоинты
+// любой веб-странице в интернете — убрано.
+app.use(cors({ origin: process.env.CORS_ORIGIN }));
 app.use(rateLimitMiddleware);
 app.use(express.json());
 // Логи пишутся в public.request_logs (таблица из db/schema.sql), просмотр —

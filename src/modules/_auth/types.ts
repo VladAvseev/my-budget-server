@@ -43,3 +43,14 @@ export interface RequestMeta {
 
 /** Строка JOIN refresh_tokens + users: активная сессия вместе с её владельцем. */
 export type SessionRow = UserRow & { token_id: string };
+
+/**
+ * Минимальная строка refresh_tokens для детекции переиспользования: хэш токена
+ * найден, но сессия уже не активна (отозвана при ротации либо истекла).
+ * revoked_at IS NOT NULL — токен был повёрнут легитимным клиентом, повторная
+ * подача того же значения означает, что его кто-то скопировал.
+ */
+export interface StaleSessionRow {
+  user_id: string;
+  revoked_at: Date | null;
+}
