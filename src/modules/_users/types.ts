@@ -9,7 +9,7 @@
 /** Строка таблицы `users` ровно как её отдаёт postgres (snake_case, numeric — строкой). */
 export interface UserRow {
   id: string;
-  email: string;
+  login: string;
   /** bcrypt-хэш — НИКОГДА не должен покидать сервер (в PublicUser его нет). */
   password_hash: string;
   role: 'user' | 'admin';
@@ -32,7 +32,7 @@ export interface UserRow {
  */
 export interface PublicUser {
   id: string;
-  email: string;
+  login: string;
   role: 'user' | 'admin';
   startBalance: number;
   currency: string | null;
@@ -44,7 +44,7 @@ export interface PublicUser {
 
 /**
  * Тело PATCH /users/me. Поля строго whitelisted: меняются только стартовый
- * баланс, валюта и флаг онбординга — email и роль через этот эндпоинт
+ * баланс, валюта и флаг онбординга — логин и роль через этот эндпоинт
  * изменить нельзя.
  * Источник полей — StartBalanceCard и OnboardingCard клиента.
  */

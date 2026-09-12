@@ -12,12 +12,12 @@
 
 -- ── Расширения ───────────────────────────────────────────────────────────────
 create extension if not exists pgcrypto;  -- gen_random_uuid()
-create extension if not exists citext;    -- регистронезависимый email
+create extension if not exists citext;    -- регистронезависимый логин
 
 -- ── Пользователи: аккаунт + профиль (JWT-авторизация на сервере) ─────────────
 create table public.users (
   id uuid primary key default gen_random_uuid(),
-  email citext not null unique,
+  login citext not null unique,
   password_hash text not null,
   role text not null default 'user' check (role in ('user', 'admin')),
   start_balance numeric not null default 0,

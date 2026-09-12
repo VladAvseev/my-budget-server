@@ -59,7 +59,7 @@ export class AdminController {
     }
   }
 
-  /** GET /admin/users/options → 200: [{ userId, email }] для селектов. */
+  /** GET /admin/users/options → 200: [{ userId, login }] для селектов. */
   async getUserOptions(_req: Request, res: Response, next: NextFunction) {
     try {
       const options = await adminService.getUserOptions();

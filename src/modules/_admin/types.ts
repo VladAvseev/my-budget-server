@@ -100,7 +100,7 @@ export interface StorageBreakdown {
  */
 export interface AdminUserRow {
   user_id: string;
-  email: string;
+  login: string;
   last_active_at: string | null;
   onboarded: boolean;
   reportsCount: number;
@@ -117,12 +117,12 @@ export interface AdminUserRow {
 
 /**
  * Лёгкая опция пользователя для селектов админки (GET /admin/users/options):
- * только id и email, без агрегатов активности/сущностей — чтобы вкладка «Логи»
+ * только id и логин, без агрегатов активности/сущностей — чтобы вкладка «Логи»
  * не тянула тяжёлый GET /admin/users ради фильтра по автору.
  */
 export interface AdminUserOption {
   userId: string;
-  email: string;
+  login: string;
 }
 
 // ── Логи запросов (таблица public.request_logs) ─────────────────────────────
@@ -184,8 +184,8 @@ export interface AdminLogRow {
   error: string | null;
   /** Автор запроса; null — запрос без авторизации (или пользователь удалён). */
   userId: string | null;
-  /** Email автора (JOIN users) для отображения в админке; null, если неавторизован. */
-  userEmail: string | null;
+  /** Логин автора (JOIN users) для отображения в админке; null, если неавторизован. */
+  userLogin: string | null;
   /** true — на момент запроса был валидный access-токен (см. is_authenticated). */
   isAuthenticated: boolean;
 }

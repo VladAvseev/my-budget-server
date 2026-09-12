@@ -45,7 +45,7 @@ interface HomeBootstrapRow {
 export function toPublicUser(row: UserRow): PublicUser {
   return {
     id: row.id,
-    email: row.email,
+    login: row.login,
     role: row.role,
     // numeric в драйвере pg — это всегда строка ("1500.50"), иначе теряется точность;
     // для балансов бытового масштаба double безопасно.

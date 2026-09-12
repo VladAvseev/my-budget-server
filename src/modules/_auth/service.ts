@@ -17,7 +17,7 @@ import type {
 import type { UserRow } from '@/modules/_users/types.js';
 
 /**
- * Бизнес-логика авторизации: email+password, JWT-сессия с refresh-ротацией.
+ * Бизнес-логика авторизации: login+password, JWT-сессия с refresh-ротацией.
  * Клиентские вызовы прежнего auth-сервиса
  * signUp/signInWithPassword/refreshSession/signOut/updateUser({password})
  * превращаются в register/login/refresh/logout/updatePassword ниже.
@@ -27,11 +27,27 @@ import type { UserRow } from '@/modules/_users/types.js';
 const BCRYPT_ROUNDS = 10;
 
 /**
- * Regex email'а скопирован из клиентской RegistrationForm.tsx
- * (client/src/modules/_registration/components/RegistrationForm.tsx),
- * чтобы сервер принимал ровно те же адреса, что пропускает форма.
+ * Набор допустимых символов логина и диапазон длины зеркалят клиентский
+ * shared/utils/validateLogin.ts: сервер должен принимать ровно то, что
+ * пропускают формы входа/регистрации. Поиск и уникальность — через citext
+ * (регистронезависимо), поэтому проверяем уже нормализованное значение.
  */
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LOGIN_REGEX = /^[a-zа-яё0-9_.-]{3,20}$/;
+
+/** Окончание как у домена почты: «ivanov.com» в логахинах не приветствуется. */
+const EMAIL_TLD_SUFFIX_REGEX = /\.(com|ru|by|net|org)$/;
+
+/** Телефон после вычитания разделителей: подряд 6+ цифр без букв. */
+const PHONE_LIKE_REGEX = /^\d{6,}$/;
+
+/** Длинная «только цифры» последовательность внутри логина (номер телефона/карты). */
+const LONG_DIGIT_RUN_REGEX = /\d{10,}/;
+
+/**
+ * Единый текст отказа валидации (по требованию продукта не различает почту,
+ * телефон и ФИО), в том же формулировании — в клиентском validateLogin.ts.
+ */
+const INVALID_LOGIN_MESSAGE = 'Логин не должен быть почтой, ФИО или телефоном';
 
 /**
  * Минимальная длина НОВОГО пароля (регистрация и смена). С 2026-09 поднята с
@@ -64,7 +80,7 @@ const ACCESS_TOKEN_TTL_SECONDS = 3600;
  * users.locked_until): столько неудачных попыток входа подряд, после чего
  * вход запрещён на LOCK_MINUTES. per-IP лимит (authRateLimitMiddleware,
  * 5/15 мин) от этого независим — вместе они закрывают и «ботнет по одному
- * аккаунту», и «перебор разных email с одного адреса».
+ * аккаунту», и «перебор разных логинов с одного адреса».
  * Счётчик в БД, а не в памяти процесса: блок переживает рестарт/деплой контейнера.
  */
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
@@ -80,8 +96,8 @@ const STALE_SESSION_CLEANUP_CHANCE = 1 / 200;
 
 /**
  * Ленивый «фиктивный» bcrypt-хэш. Нужен, чтобы при логине с несуществующим
- * email всё равно выполнялось compare(): время ответа одинаковое для
- * «нет такого юзера» и «неверный пароль» — по таймингу нельзя перебирать email'ы.
+ * логином всё равно выполнялось compare(): время ответа одинаковое для
+ * «нет такого юзера» и «неверный пароль» — по таймингу нельзя перебирать логины.
  */
 let dummyHash: string | null = null;
 function getDummyHash(): string {
@@ -89,15 +105,34 @@ function getDummyHash(): string {
   return dummyHash;
 }
 
-/** Проверка формы email/пароль — тексты ошибок зеркалят маппинг getErrorMessage() клиента. */
-function validateCredentials(
-  email: unknown,
-  password: unknown,
-  minPasswordLength: number,
-): asserts email is string {
-  if (typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
-    throw new AppError('Некорректный email', 400);
+/**
+ * Нормализация и валидация логина: trim + нижний регистр, затем regex
+ * допустимых символов и блоки «почта/ФИО/телефон» (ФИО отсекается запретом
+ * пробелов). null — логин недопустим; нормализованное значение — тот вид,
+ * в котором он уходит в БД (в нижнем регистре — как его же ищет citext).
+ */
+function normalizeLogin(login: unknown): string | null {
+  if (typeof login !== 'string') {
+    return null;
   }
+  const value = login.trim().toLowerCase();
+  if (!LOGIN_REGEX.test(value)) {
+    return null;
+  }
+  if (EMAIL_TLD_SUFFIX_REGEX.test(value)) {
+    return null;
+  }
+  if (PHONE_LIKE_REGEX.test(value.replace(/[-._\s]/g, ''))) {
+    return null;
+  }
+  if (LONG_DIGIT_RUN_REGEX.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+/** Проверка пароля — тексты ошибок зеркалят маппинг getErrorMessage() клиента. */
+function validatePassword(password: unknown, minPasswordLength: number): asserts password is string {
   if (typeof password !== 'string' || password.length < minPasswordLength) {
     throw new AppError(`Пароль должен содержать не менее ${minPasswordLength} символов`, 400);
   }
@@ -108,22 +143,26 @@ function validateCredentials(
 
 export class AuthService {
   /**
-   * Регистрация: подтверждения email нет (нет email-инфраструктуры), поэтому
-   * сразу логиним пользователя и выдаём пару токенов.
+   * Регистрация: подтверждения контакта нет (email-инфраструктуры в проекте
+   * никогда не было), поэтому сразу логиним пользователя и выдаём пару токенов.
    */
   async register(input: CredentialsInput, meta: RequestMeta): Promise<SessionResponse> {
-    validateCredentials(input.email, input.password, MIN_PASSWORD_LENGTH);
+    const login = normalizeLogin(input.login);
+    if (login === null) {
+      throw new AppError(INVALID_LOGIN_MESSAGE, 400);
+    }
+    validatePassword(input.password, MIN_PASSWORD_LENGTH);
 
     const passwordHash = await hash(input.password, BCRYPT_ROUNDS);
 
     let user: UserRow;
     try {
-      user = await authRepository.createUser(input.email, passwordHash);
+      user = await authRepository.createUser(login, passwordHash);
     } catch (err) {
-      // 23505 — unique_violation на индексе users.email: тот же смысл,
+      // 23505 — unique_violation на индексе users.login: тот же смысл,
       // что 'User already registered' у прежнего auth-сервиса (см. errorMessage.ts клиента).
       if ((err as { code?: string }).code === '23505') {
-        throw new AppError('Пользователь с таким email уже зарегистрирован', 409);
+        throw new AppError('Пользователь с таким логином уже зарегистрирован', 409);
       }
       throw err;
     }
@@ -138,15 +177,19 @@ export class AuthService {
    * LOCK_MINUTES минут): per-IP лимит не спасает от распределённого ботнета,
    * который долбит ОДИН аккаунт с сотен адресов. Счётчик живёт в БД
    * (users.failed_login_attempts / locked_until), состояние блока — на аккаунт,
-   * а не на процесс API. Сообщение о блоке раскрывает существование email —
+   * а не на процесс API. Сообщение о блоке раскрывает существование логина —
    * осознанно: enum уже доступен через register (409 «уже зарегистрирован»),
    * скрывать поздно, а легитимному пользователю нужно объяснять причину.
    */
   async login(input: CredentialsInput, meta: RequestMeta): Promise<SessionResponse> {
+    const login = normalizeLogin(input.login);
+    if (login === null) {
+      throw new AppError(INVALID_LOGIN_MESSAGE, 400);
+    }
     // Вход принимаем и за legacy-пароли 6–7 символов (порог 8 — только для новых).
-    validateCredentials(input.email, input.password, LEGACY_LOGIN_MIN_LENGTH);
+    validatePassword(input.password, LEGACY_LOGIN_MIN_LENGTH);
 
-    const user = await authRepository.findByEmail(input.email);
+    const user = await authRepository.findByLogin(login);
 
     // Блокировка проверяется до bcrypt: не тратим CPU на заведомо отбитые попытки.
     if (user?.locked_until && new Date(user.locked_until) > new Date()) {
@@ -169,8 +212,8 @@ export class AuthService {
           LOCK_MINUTES,
         );
       }
-      // Одна формулировка на обе причины — не подсказываем, существует ли email.
-      throw new AppError('Неверный email или пароль', 401);
+      // Одна формулировка на обе причины — не подсказываем, существует ли логин.
+      throw new AppError('Неверный логин или пароль', 401);
     }
 
     await authRepository.resetFailedAttempts(user.id);

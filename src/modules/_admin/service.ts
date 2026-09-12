@@ -143,7 +143,7 @@ export class AdminService {
     return adminRepository.listUsers();
   }
 
-  /** GET /admin/users/options — лёгкие id+email для селектов (без агрегатов). */
+  /** GET /admin/users/options — лёгкие id+login для селектов (без агрегатов). */
   async getUserOptions(): Promise<AdminUserOption[]> {
     return adminRepository.listUserOptions();
   }

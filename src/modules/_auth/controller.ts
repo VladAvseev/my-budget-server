@@ -19,7 +19,7 @@ function meta(req: Request): RequestMeta {
 }
 
 export class AuthController {
-  /** POST /auth/register — body: { email, password } → 201 + сессия. */
+  /** POST /auth/register — body: { login, password } → 201 + сессия. */
   async register(req: Request, res: Response, next: NextFunction) {
     try {
       const session = await authService.register(req.body ?? {}, meta(req));
@@ -29,7 +29,7 @@ export class AuthController {
     }
   }
 
-  /** POST /auth/login — body: { email, password } → 200 + сессия. */
+  /** POST /auth/login — body: { login, password } → 200 + сессия. */
   async login(req: Request, res: Response, next: NextFunction) {
     try {
       const session = await authService.login(req.body ?? {}, meta(req));

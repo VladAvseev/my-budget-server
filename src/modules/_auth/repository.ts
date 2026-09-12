@@ -12,23 +12,23 @@ const STALE_SESSION_RETENTION_DAYS = 30;
  */
 export class AuthRepository {
   /**
-   * Поиск по email. Колонка citext — поиск регистронезависимый:
-   * 'Foo@Mail.COM' и 'foo@mail.com' — один пользователь.
+   * Поиск по логину. Колонка citext — поиск регистронезависимый:
+   * 'Vlada' и 'vlada' — один пользователь.
    */
-  async findByEmail(email: string): Promise<UserRow | null> {
-    const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE email = $1', [
-      email,
+  async findByLogin(login: string): Promise<UserRow | null> {
+    const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE login = $1', [
+      login,
     ]);
     return rows[0] ?? null;
   }
 
-  /** Создание аккаунта. Дубликат email поймается уникальным индексом (SQLSTATE 23505). */
-  async createUser(email: string, passwordHash: string): Promise<UserRow> {
+  /** Создание аккаунта. Дубликат логина поймается уникальным индексом (SQLSTATE 23505). */
+  async createUser(login: string, passwordHash: string): Promise<UserRow> {
     const { rows } = await pool.query<UserRow>(
-      `INSERT INTO public.users (email, password_hash)
+      `INSERT INTO public.users (login, password_hash)
        VALUES ($1, $2)
        RETURNING *`,
-      [email, passwordHash],
+      [login, passwordHash],
     );
     return rows[0];
   }

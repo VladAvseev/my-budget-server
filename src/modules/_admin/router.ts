@@ -27,19 +27,19 @@ adminRouter.get('/dashboard/operations-dynamics', adminController.getOperationsD
 adminRouter.get('/dashboard/storage-breakdown', adminController.getStorageBreakdown);
 
 // GET /admin/users (хук useAdminUsers): список всех
-// пользователей со статистикой (email, активность, онбординг, количество
+// пользователей со статистикой (логин, активность, онбординг, количество
 // отчётов/операций/категорий/накоплений/целей). Таблица страницы
 // «Пользователи» админ-панели.
 adminRouter.get('/users', adminController.listUsers);
 
-// GET /admin/users/options (хук useAdminUserOptions): только id + email
+// GET /admin/users/options (хук useAdminUserOptions): только id + login
 // пользователей, без агрегатов активности/сущностей. Нужен лёгкому фильтру
 // «Автор» на вкладке «Логи», чтобы не тянуть тяжёлый GET /admin/users.
 adminRouter.get('/users/options', adminController.getUserOptions);
 
 // DELETE /admin/users/:userId — физическое удаление пользователя (данные
 // снимаются каскадом БД). Кнопка «Удалить» в таблице страницы «Пользователи»
-// с подтверждением вводом email. Удалить себя сервер не даёт (400).
+// с подтверждением вводом логина. Удалить себя сервер не даёт (400).
 adminRouter.delete('/users/:userId', adminController.deleteUser);
 
 // GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&methods=GET,POST

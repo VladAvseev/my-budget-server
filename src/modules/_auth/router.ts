@@ -5,12 +5,12 @@ import { authController } from './controller.js';
 
 export const authRouter = Router();
 
-// POST /auth/register - тело: { email, password }.
+// POST /auth/register - тело: { login, password }.
 // Создаёт строку в users (пароль — bcrypt-хэш) и сразу выдаёт пару токенов
-// access+refresh (подтверждение email не используется).
+// access+refresh (подтверждение контакта не используется).
 authRouter.post('/register', authRateLimitMiddleware, authController.register);
 
-// POST /auth/login - тело: { email, password }.
+// POST /auth/login - тело: { login, password }.
 // Сверка bcrypt-хэша, новая запись в refresh_tokens
 // (одна строка = одно устройство/сессия).
 authRouter.post('/login', authRateLimitMiddleware, authController.login);

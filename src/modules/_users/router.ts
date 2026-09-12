@@ -9,7 +9,7 @@ export const usersRouter = Router();
 usersRouter.use(authenticate);
 
 // GET /users/me (хук useProfile):
-// профиль текущего пользователя: email, роль, start_balance, currency, onboarded.
+// профиль текущего пользователя: логин, роль, start_balance, currency, onboarded.
 usersRouter.get('/me', usersController.getMe);
 
 // PATCH /users/me: { startBalance?, currency?, onboarded? } → обновлённый профиль.

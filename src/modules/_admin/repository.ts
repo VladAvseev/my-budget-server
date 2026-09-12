@@ -255,7 +255,7 @@ export class AdminRepository {
     const { rows } = await pool.query<{ data: AdminUserRow[] | null }>(
       `SELECT coalesce(jsonb_agg(jsonb_build_object(
         'user_id', u.id,
-        'email', u.email,
+        'login', u.login,
         'last_active_at', u.last_active_at,
         'onboarded', u.onboarded,
         'reportsCount', coalesce(r.cnt, 0),
@@ -299,14 +299,14 @@ export class AdminRepository {
   }
 
   /**
-   * Лёгкий список пользователей для селектов (id + email) без агрегатов и
-   * JOIN'ов — только отсортированный по email обход public.users.
+   * Лёгкий список пользователей для селектов (id + login) без агрегатов и
+   * JOIN'ов — только отсортированный по логину обход public.users.
    */
   async listUserOptions(): Promise<AdminUserOption[]> {
-    const { rows } = await pool.query<{ user_id: string; email: string }>(
-      `SELECT id AS user_id, email FROM public.users ORDER BY email`,
+    const { rows } = await pool.query<{ user_id: string; login: string }>(
+      `SELECT id AS user_id, login FROM public.users ORDER BY login`,
     );
-    return rows.map((row) => ({ userId: row.user_id, email: row.email }));
+    return rows.map((row) => ({ userId: row.user_id, login: row.login }));
   }
 
   // ── Логи запросов (public.request_logs) ────────────────────────────────────
@@ -318,7 +318,7 @@ export class AdminRepository {
    * фильтр по методам — whitelist LogsMethod (пустой список — без фильтра).
    * Сортировка — whitelist LogsSortField/LogsSortOrder (колонка подставляется
    * из маппинга, не из строки клиента), tie-breaker id DESC для стабильной
-   * пагинации при одинаковых duration_ms. Email автора тянется LEFT JOIN по
+   * пагинации при одинаковых duration_ms. Логин автора тянется LEFT JOIN по
    * public.users: у строк без авторизации (user_id is null) он остаётся null.
    */
   async getLogs(
@@ -367,11 +367,11 @@ export class AdminRepository {
       error: string | null;
       user_id: string | null;
       is_authenticated: boolean;
-      user_email: string | null;
+      user_login: string | null;
     }>(
       `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.status,
               rl.duration_ms, rl.error, rl.user_id, rl.is_authenticated,
-              u.email AS user_email
+              u.login AS user_login
        FROM public.request_logs rl
        LEFT JOIN public.users u ON u.id = rl.user_id
        ${where}
@@ -390,7 +390,7 @@ export class AdminRepository {
         durationMs: row.duration_ms,
         error: row.error,
         userId: row.user_id,
-        userEmail: row.user_email,
+        userLogin: row.user_login,
         isAuthenticated: row.is_authenticated,
       })),
       total: Number(countRows[0]?.count ?? 0),

@@ -150,7 +150,7 @@ src/
   список HTTP-методов через запятую, пусто — все; сортировка
   `sort=date|duration` + `order=asc|desc`, по умолчанию свежие сверху),
   `GET /admin/logs/metrics`
-  (вкладка «Логи» админ-панели клиента; email автора тянется `LEFT JOIN users`;
+  (вкладка «Логи» админ-панели клиента; логин автора тянется `LEFT JOIN users`;
   строка с ошибкой раскрывается по клику и показывает текст ошибки).
   График динамики логов —
   `GET /admin/logs/dynamics?audience=all|users&metric=count|unique_users&bucket=hour|day`:

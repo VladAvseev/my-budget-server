@@ -8,7 +8,7 @@ import type { PublicUser, UserRow } from '@/modules/_users/types.js';
 
 /** POST /auth/register и POST /auth/login — как LoginCredentials в клиенте. */
 export interface CredentialsInput {
-  email: string;
+  login: string;
   password: string;
 }
 

@@ -8,7 +8,7 @@ import type { NextFunction, Request, Response } from 'express';
  * строкам исключён на уровне сервера.
  */
 export class UsersController {
-  /** GET /users/me → 200: профиль (email, роль, баланс, валюта, onboarded, даты). */
+  /** GET /users/me → 200: профиль (логин, роль, баланс, валюта, onboarded, даты). */
   async getMe(req: Request, res: Response, next: NextFunction) {
     try {
       const user = await usersService.getMe(req.user!.id);
