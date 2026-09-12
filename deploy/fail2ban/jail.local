@@ -1,0 +1,30 @@
+[DEFAULT]
+backend   = systemd
+banaction = ufw
+bantime   = 1h
+findtime  = 10m
+maxretry  = 5
+bantime.increment = true
+bantime.maxtime   = 1w
+ignoreip  = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+port    = 22
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+
+[nginx-botsearch]
+enabled  = true
+backend  = polling
+port     = http,https
+logpath  = /var/log/nginx/access.log
+maxretry = 6
+bantime  = 1h
+
+[recidive]
+enabled   = true
+backend   = auto
+logpath   = /var/log/fail2ban.log
+bantime   = 1w
+findtime  = 1d
+maxretry  = 5

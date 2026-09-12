@@ -12,6 +12,10 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
 - Продакшн: Docker Compose на сервере Reg.ru (`/opt/mybudget/server`),
   стек `db` (postgres:16) + `api` (этот репозиторий) + `web` (клон `client/`);
   секреты — в локальном `.env` на сервере (не в git).
+- Сетевой периметр сервера: ufw (наружу только 22/80/443) + fail2ban
+  (jail.local: sshd/nginx-botsearch/recidive, баны через ufw). Локальные
+  файлы и порядок восстановления — в `deploy/fail2ban/README.md`; на свежей
+  машине разворачивать оттуда, shipped-конфиги fail2ban не править.
 - Схема БД: `db/schema.sql` (полная, рассчитана на пустую базу — на живой БД
   целиком не запускать), применяется автоматически при первом старте тома
   `pgdata`; дальнейшие правки — двумя коммитами: в `db/schema.sql` (для свежих
