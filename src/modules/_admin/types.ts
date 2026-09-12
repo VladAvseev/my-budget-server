@@ -188,7 +188,6 @@ export interface AdminLogRow {
   userEmail: string | null;
   /** true — на момент запроса был валидный access-токен (см. is_authenticated). */
   isAuthenticated: boolean;
-  ip: string | null;
 }
 
 /** Ответ GET /admin/logs — страница + пагинация. */

@@ -11,9 +11,10 @@ export const app = express();
 
 // Прод-топология: браузер → хостовый nginx (TLS) → nginx web-контейнера →
 // этот сервер. Две доверенных прокси-скобки, чтобы:
-//   * req.ip содержал реальный адрес клиента (пишется в refresh_tokens.ip);
 //   * express-rate-limit (v8) не падал с ERR_ERL_UNEXPECTED_X_FORWARDED_FOR,
 //     получая X-Forwarded-For от прокси. В dev (без прокси) setting безвреден.
+// req.ip (ключ per-IP лимитов) при этом содержит реальный адрес клиента;
+// в БД/IP-логирование адрес не пишется (см. requestLoggingMiddleware).
 app.set('trust proxy', 2);
 
 app.use(helmet());

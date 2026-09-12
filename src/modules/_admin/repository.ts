@@ -368,11 +368,10 @@ export class AdminRepository {
       user_id: string | null;
       is_authenticated: boolean;
       user_email: string | null;
-      ip: string | null;
     }>(
       `SELECT rl.id, rl.created_at, rl.method, rl.path, rl.status,
               rl.duration_ms, rl.error, rl.user_id, rl.is_authenticated,
-              u.email AS user_email, host(rl.ip) AS ip
+              u.email AS user_email
        FROM public.request_logs rl
        LEFT JOIN public.users u ON u.id = rl.user_id
        ${where}
@@ -393,7 +392,6 @@ export class AdminRepository {
         userId: row.user_id,
         userEmail: row.user_email,
         isAuthenticated: row.is_authenticated,
-        ip: row.ip,
       })),
       total: Number(countRows[0]?.count ?? 0),
       page,

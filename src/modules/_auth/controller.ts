@@ -15,7 +15,7 @@ import type { RequestMeta } from './types.js';
  * без привязки контекста (`this` там undefined).
  */
 function meta(req: Request): RequestMeta {
-  return { userAgent: req.headers['user-agent'], ip: req.ip };
+  return { userAgent: req.headers['user-agent'] };
 }
 
 export class AuthController {

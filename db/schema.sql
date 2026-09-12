@@ -36,7 +36,6 @@ create table public.refresh_tokens (
   user_id uuid not null references public.users (id) on delete cascade,
   token_hash text not null unique,
   user_agent text,
-  ip inet,
   expires_at timestamptz not null,
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
@@ -134,7 +133,7 @@ create unique index reports_user_id_code_key on public.reports (user_id, code) w
 
 -- ── Логи HTTP-запросов (просмотр — админка, метрики считаются SQL-ем) ──────
 -- Пишет middleware requestLoggingMiddleware: метод, путь, статус, длительность,
--- автор, ip — и текст ошибки для ответов с статусом >= 400. Параметры запроса
+-- автор — и текст ошибки для ответов с статусом >= 400. Параметры запроса
 -- (query), тела запросов/ответов и User-Agent не хранятся: это основной объём
 -- таблицы и светлые данные в БД. Устаревшие строки чистит сама middleware
 -- (LOG_RETENTION_DAYS).
@@ -153,8 +152,7 @@ create table public.request_logs (
   user_role text check (user_role in ('user', 'admin')),
   -- Отделяет «запрос без авторизации» от «user_id обнулён каскадом»:
   -- пишется в момент запроса (requestLoggingMiddleware), не меняется ретроспективно.
-  is_authenticated boolean not null default false,
-  ip inet
+  is_authenticated boolean not null default false
 );
 
 create index request_logs_created_at_idx on public.request_logs (created_at desc);

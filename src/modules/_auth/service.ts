@@ -204,7 +204,7 @@ export class AuthService {
         // eslint-disable-next-line no-console -- сигнал компрометации, должен попадать в stderr/логи контейнера
         console.warn(
           `Refresh-токен использован повторно (возможна кража): все сессии отозваны. ` +
-            `user=${stale.user_id} ip=${meta.ip ?? 'unknown'}`,
+            `user=${stale.user_id}`,
         );
       }
       throw new AppError('Сессия истекла, войдите заново', 401);
@@ -264,7 +264,6 @@ export class AuthService {
       user.id,
       hashRefreshToken(refreshToken),
       meta.userAgent ?? null,
-      meta.ip ?? null,
       refreshTokenExpiresAt(),
     );
 

@@ -42,13 +42,12 @@ export class AuthRepository {
     userId: string,
     tokenHash: string,
     userAgent: string | null,
-    ip: string | null,
     expiresAt: string,
   ): Promise<void> {
     await pool.query(
-      `INSERT INTO public.refresh_tokens (user_id, token_hash, user_agent, ip, expires_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [userId, tokenHash, userAgent, ip, expiresAt],
+      `INSERT INTO public.refresh_tokens (user_id, token_hash, user_agent, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, tokenHash, userAgent, expiresAt],
     );
   }
 

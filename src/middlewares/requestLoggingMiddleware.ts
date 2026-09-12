@@ -7,14 +7,15 @@ import type { NextFunction, Request, Response } from 'express';
  * Что пишется на каждый запрос: дата и время (created_at), метод, путь, статус,
  * длительность, user_id + user_role + is_authenticated (автор запроса: роль из
  * JWT-claim на момент запроса — для неавторизованных user_id и user_role = null,
- * is_authenticated = false) и ip. Дополнительно для ответов с ошибкой (статус
+ * is_authenticated = false). Дополнительно для ответов с ошибкой (статус
  * >= 400) сохраняется текст ошибки — админка показывает его при раскрытии строки.
  * user_role позволяет фильтровать логи/графики по роли автора (пользователи без
  * админов) и ретроспективно: роль не тянется из users, где она может измениться.
  *
- * Что НЕ пишется: параметры запроса (query), тела запроса и ответа, User-Agent.
- * Тела и query занимали основной объём таблицы и светили данные в БД, а
- * User-Agent нигде не отображался (атрибутика устройств есть у refresh-токенов).
+ * Что НЕ пишется: параметры запроса (query), тела запроса и ответа, User-Agent и
+ * IP-адрес клиента. Тела и query занимали основной объём таблицы и светили данные
+ * в БД, User-Agent нигде не отображался (атрибутика устройств есть у refresh-
+ * токенов), а IP убран из логирования осознанно (приватность).
  * Длительность считается до res.finish.
  *
  * Пути нормализуются: UUID- и чисто числовые сегменты заменяются на ':id'
@@ -27,7 +28,7 @@ import type { NextFunction, Request, Response } from 'express';
  * Не логируем GET'ы админ-панели (/api/v1/admin/*) — иначе дашборд, список
  * пользователей и просмотр логов заполняли бы request_logs сами себя.
  * Не-GET админ-запросы (например, DELETE /admin/users/:id) пишем как audit
- * trail: destructive-действия админа должны оставлять след (user_id, роль, ip).
+ * trail: destructive-действия админа должны оставлять след (user_id, роль).
  *
  * Настройки (.env, с дефолтами ниже):
  *   LOG_RETENTION_DAYS=30    — сколько дней хранить логи.
@@ -133,8 +134,8 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
       .query(
         `INSERT INTO public.request_logs
            (method, path, status, duration_ms, error,
-            user_id, user_role, is_authenticated, ip)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            user_id, user_role, is_authenticated)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           req.method,
           normalizePath(fullPath),
@@ -148,7 +149,6 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
           // Фиксируем факт авторизации на момент запроса: user_id может быть
           // обнулён каскадом (on delete set null) после удаления пользователя.
           req.user != null,
-          req.ip ?? null,
         ],
       )
       .catch((err: unknown) => {

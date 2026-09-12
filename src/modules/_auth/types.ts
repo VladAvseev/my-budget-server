@@ -35,10 +35,9 @@ export interface SessionResponse {
   user: PublicUser;
 }
 
-/** Метаданные устройства из запроса — пишутся в refresh_tokens (кто/откуда сессию создал). */
+/** Метаданные устройства из запроса — пишутся в refresh_tokens (кто сессию создал). */
 export interface RequestMeta {
   userAgent?: string;
-  ip?: string;
 }
 
 /** Строка JOIN refresh_tokens + users: активная сессия вместе с её владельцем. */
