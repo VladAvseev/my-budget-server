@@ -263,6 +263,7 @@ export class AdminRepository {
         'categoriesCount', coalesce(c.cnt, 0),
         'incomeCount', coalesce(o.income_cnt, 0),
         'dailyCount', coalesce(o.daily_cnt, 0),
+        'dailyReportsCount', coalesce(o.daily_reports_cnt, 0),
         'expenseCount', coalesce(o.expense_cnt, 0),
         'savingsCount', coalesce(o.savings_cnt, 0),
         'accumulationsCount', coalesce(a.cnt, 0),
@@ -278,6 +279,7 @@ export class AdminRepository {
           count(*) AS cnt,
           count(*) FILTER (WHERE type = 'income') AS income_cnt,
           count(*) FILTER (WHERE type = 'daily') AS daily_cnt,
+          count(DISTINCT report_id) FILTER (WHERE type = 'daily') AS daily_reports_cnt,
           count(*) FILTER (WHERE type = 'expense') AS expense_cnt,
           count(*) FILTER (WHERE type IN ('savings', 'savings_out')) AS savings_cnt
         FROM public.operations
