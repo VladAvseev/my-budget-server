@@ -10,8 +10,14 @@ import type { ConsentLogEntry, ConsentStateRow } from './types.js';
  * клиент не может передать ни время, ни версию.
  */
 
-/** Общий набор опций pgp_sym_encrypt: ASCII-brоняный вывод ложим в text-колонку. */
-const PGP_OPTIONS = 'cipher_algo=aes256, armor=true';
+/**
+ * Опции pgp_sym_encrypt: у PGP-функций pgcrypto имена только через дефис
+ * (underscore-синтаксис 'cipher_algo' и опция 'armor' есть лишь у
+ * низкоуровневого encrypt() — иначе 'Illegal argument to function').
+ * Бронирование — отдельной функцией armor(): ASCII-вывод кладём в text-колонку
+ * (расшифровка — pgp_sym_decrypt(dearmor(...)), см. шапку миграции).
+ */
+const PGP_OPTIONS = 'cipher-algo=aes256';
 
 /**
  * Ключ шифрования ip/user_agent (п.8: журнал ПДн защищаем так же, как и сами
@@ -64,11 +70,11 @@ export class ConsentRepository {
     await client.query(
       `INSERT INTO public.consent_log
          (user_id, ip_address, user_agent, document_type, document_version, form_id, action)
-       VALUES
-         ($1,
-          pgp_sym_encrypt($2, $4, '${PGP_OPTIONS}')::text,
-          CASE WHEN $3::text IS NULL THEN NULL
-               ELSE pgp_sym_encrypt($3, $4, '${PGP_OPTIONS}')::text END,
+        VALUES
+          ($1,
+           armor(pgp_sym_encrypt($2, $4, '${PGP_OPTIONS}')),
+           CASE WHEN $3::text IS NULL THEN NULL
+                ELSE armor(pgp_sym_encrypt($3, $4, '${PGP_OPTIONS}')) END,
           $5, $6, $7, $8)`,
       [
         entry.userId,
