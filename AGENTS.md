@@ -21,7 +21,10 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
   `pgdata`; дальнейшие правки — двумя коммитами: в `db/schema.sql` (для свежих
   установок) и отдельным идемпотентным файлом в `db/migrations/` для догона
   боевой БД. Применение: `docker compose exec db psql -U mybudget -d mybudget`
-  и вставить содержимое файла (либо `-f - < db/migrations/<file>.sql`).
+  и вставить содержимое файла; неинтерактивно из пайпа — только с `-T`:
+  `docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/<file>.sql`
+  (без `-T` compose отказывается принимать stdin: "cannot attach stdin to a
+  TTY-enabled container").
 - CI (`.gitlab-ci.yml`): build+lint+typecheck, job `deploy-api` (активен после
   заведения `DEPLOY_SSH_KEY` в Variables), зеркало в GitHub.
 
