@@ -1,5 +1,7 @@
-import { usersRepository, toPublicUser } from './repository.js';
+import { usersRepository, toPublicUser, isAnonymizedLogin } from './repository.js';
+import { consentService } from '@/modules/_consent/service.js';
 import { AppError } from '@/shared/appError.js';
+import type { ConsentRequestMeta } from '@/modules/_consent/types.js';
 import type {
   HomeBootstrap,
   OnboardingState,
@@ -84,6 +86,21 @@ export class UsersService {
       throw new AppError('Пользователь не найден', 404);
     }
     return bootstrap;
+  }
+
+  /**
+   * DELETE /users/me — самоудаление аккаунта (путь «Удалить аккаунт» из
+   * consent-gate и из настроек). Идёт тем же серверным сценарием, что и отзыв
+   * согласия (п.7): revoked → обезличивание данных → erased, сессии до
+   * нуля. Повторный вызов уже обезличенным аккаунтом (в живом JWT-токене) —
+   * 404: «надгробие» не считается существующим пользователем.
+   */
+  async deleteMe(userId: string, meta: ConsentRequestMeta): Promise<void> {
+    const user = await usersRepository.getById(userId);
+    if (!user || isAnonymizedLogin(user.login)) {
+      throw new AppError('Пользователь не найден', 404);
+    }
+    await consentService.revokeAndErase(userId, meta, 'account_settings');
   }
 }
 

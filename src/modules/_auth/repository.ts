@@ -1,4 +1,5 @@
 import { pool } from '@/db/pool.js';
+import type { PoolClient } from 'pg';
 import type { SessionRow, StaleSessionRow } from './types.js';
 import type { UserRow } from '@/modules/_users/types.js';
 
@@ -22,9 +23,13 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
-  /** Создание аккаунта. Дубликат логина поймается уникальным индексом (SQLSTATE 23505). */
-  async createUser(login: string, passwordHash: string): Promise<UserRow> {
-    const { rows } = await pool.query<UserRow>(
+  /**
+   * Создание аккаунта. Дубликат логина поймается уникальным индексом (SQLSTATE 23505).
+   * client — работа в чужой транзакции (регистрация обязана атомарно вставить
+   * и строку users, и первую запись consent_log); без него — обычный pool.
+   */
+  async createUser(login: string, passwordHash: string, client?: PoolClient): Promise<UserRow> {
+    const { rows } = await (client ?? pool).query<UserRow>(
       `INSERT INTO public.users (login, password_hash)
        VALUES ($1, $2)
        RETURNING *`,

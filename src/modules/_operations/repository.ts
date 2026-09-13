@@ -104,10 +104,7 @@ export class OperationsRepository {
    * category_id. Фильтр по user_id не даёт вытащить чужие отчёты — они молча
    * выпадают из выборки.
    */
-  async categorySummary(
-    reportIds: string[],
-    userId: string,
-  ): Promise<CategorySummaryRowDto[]> {
+  async categorySummary(reportIds: string[], userId: string): Promise<CategorySummaryRowDto[]> {
     if (reportIds.length === 0) {
       return [];
     }

@@ -1,10 +1,12 @@
 import { authenticate } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { accumulationsController } from './controller.js';
 
 export const accumulationsRouter = Router();
 
-accumulationsRouter.use(authenticate);
+// Данные пользователя — доступ только с действующим согласием на обработку ПДн.
+accumulationsRouter.use(authenticate, requireConsent);
 
 accumulationsRouter.get('/', accumulationsController.list);
 

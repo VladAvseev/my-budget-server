@@ -9,13 +9,14 @@ import type { RequestMeta } from './types.js';
  */
 
 /**
- * От кого запрос: сохраняем в refresh_tokens, чтобы сессии-устройства
- * можно было различать.
+ * От кого запрос: userAgent сохраняем в refresh_tokens, чтобы сессии-устройства
+ * можно было различать, а ip+userAgent — в consent_log при регистрации
+ * (зашифрованными) как доказательство юридически значимого события.
  * Функция уровня модуля, а не метод класса: Express вызывает контроллеры
  * без привязки контекста (`this` там undefined).
  */
 function meta(req: Request): RequestMeta {
-  return { userAgent: req.headers['user-agent'] };
+  return { userAgent: req.headers['user-agent'], ip: req.ip };
 }
 
 export class AuthController {

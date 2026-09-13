@@ -27,3 +27,9 @@ usersRouter.get('/me/summary', usersController.getSummary);
 // профиль-срез, онбординг-счётчики, последний период со сводкой, глобальные
 // суммы, структура накоплений и цели — один CTE-запрос вместо ~8 запросов.
 usersRouter.get('/me/bootstrap', usersController.getBootstrap);
+
+// DELETE /users/me: self-удаление — тот же сценарий, что отзыв согласия
+// (revoked → обезличивание → erased). Маршрут ДОСТУПЕН и в состоянии
+// NEEDS_CONSENT (модуль /users не закрыт requireConsent): пользователь,
+// отказывающийся принять согласие, обязан иметь путь к удалению аккаунта (п.5).
+usersRouter.delete('/me', usersController.deleteMe);

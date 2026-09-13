@@ -57,6 +57,23 @@ export class UsersController {
       next(error);
     }
   }
+
+  /**
+   * DELETE /users/me → 204: обезличивание аккаунта вместе с данными (п.5/п.7).
+   * Идемпотентен для клиента: после успеха access-JWT доживает TTL, но сессий
+   * (refresh) больше нет, а вход в обезличенный аккаунт невозможен.
+   */
+  async deleteMe(req: Request, res: Response, next: NextFunction) {
+    try {
+      await usersService.deleteMe(req.user!.id, {
+        ip: req.ip ?? 'unknown',
+        userAgent: req.headers['user-agent'] ?? null,
+      });
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const usersController = new UsersController();

@@ -1,11 +1,14 @@
 import { authenticate, requireAdmin } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { adminController } from './controller.js';
 
 export const adminRouter = Router();
 
 // Доступ к админке — только с ролью admin: сначала валидируем JWT, затем роль.
-adminRouter.use(authenticate, requireAdmin);
+// requireConsent тоже обязателен: админ — такой же субъект ПДн, а дашборды
+// агрегируют данные всех пользователей.
+adminRouter.use(authenticate, requireAdmin, requireConsent);
 
 // GET /admin/dashboard/stats (хук useAdminStats): сводная статистика —
 // пользователи (всего/без отчётов/
@@ -37,9 +40,10 @@ adminRouter.get('/users', adminController.listUsers);
 // «Автор» на вкладке «Логи», чтобы не тянуть тяжёлый GET /admin/users.
 adminRouter.get('/users/options', adminController.getUserOptions);
 
-// DELETE /admin/users/:userId — физическое удаление пользователя (данные
-// снимаются каскадом БД). Кнопка «Удалить» в таблице страницы «Пользователи»
-// с подтверждением вводом логина. Удалить себя сервер не даёт (400).
+// DELETE /admin/users/:userId — удаление пользователя: обезличивание аккаунта
+// (данные стираются, строка users остаётся «надгробием» ради журнала
+// consent_log) с записью revoked/erased. Кнопка «Удалить» в таблице страницы
+// «Пользователи» с подтверждением вводом логина. Удалить себя сервер не даёт (400).
 adminRouter.delete('/users/:userId', adminController.deleteUser);
 
 // GET /admin/logs?status=all|success|error&userId=<uuid>|anonymous&methods=GET,POST

@@ -6,10 +6,16 @@ import type { PublicUser, UserRow } from '@/modules/_users/types.js';
  * signUp / signInWithPassword / refreshSession / signOut / updateUser({password}).
  */
 
-/** POST /auth/register и POST /auth/login — как LoginCredentials в клиенте. */
+/**
+ * POST /auth/register и POST /auth/login — как LoginCredentials в клиенте.
+ * consent — обязательное для регистрации флаг-подтверждение согласия на
+ * обработку ПДн (п.4 требований): сервер принимает только literal true,
+ * версию документа клиент НЕ передаёт (её берёт сервер из is_current).
+ */
 export interface CredentialsInput {
   login: string;
   password: string;
+  consent?: boolean;
 }
 
 /** POST /auth/refresh и POST /auth/logout. */
@@ -35,9 +41,14 @@ export interface SessionResponse {
   user: PublicUser;
 }
 
-/** Метаданные устройства из запроса — пишутся в refresh_tokens (кто сессию создал). */
+/**
+ * Метаданные устройства из запроса — пишутся в refresh_tokens (кто сессию
+ * создал) и в consent_log (кто дал согласие; ip/ua там шифруются).
+ */
 export interface RequestMeta {
   userAgent?: string;
+  /** req.ip (при trust proxy=2 — реальный адрес клиента). */
+  ip?: string;
 }
 
 /** Строка JOIN refresh_tokens + users: активная сессия вместе с её владельцем. */

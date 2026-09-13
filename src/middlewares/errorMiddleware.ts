@@ -20,7 +20,15 @@ interface ParserError {
  */
 export function errorMiddleware(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
-    res.status(err.status).json({ error: { message: err.message, status: err.status } });
+    res.status(err.status).json({
+      error: {
+        message: err.message,
+        status: err.status,
+        // machine-readable код включаем в envelope только когда он задан —
+        // форма ошибки для старых клиентов остаётся прежней.
+        ...(err.code ? { code: err.code } : {}),
+      },
+    });
     return;
   }
 

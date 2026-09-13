@@ -1,5 +1,8 @@
+import { GATING_DOCUMENT_TYPE } from '@/modules/_consent/types.js';
+import { consentRepository } from '@/modules/_consent/repository.js';
 import { toPublicUser } from '@/modules/_users/repository.js';
 import { AppError } from '@/shared/appError.js';
+import { withTransaction } from '@/shared/transaction.js';
 import { compare, hash, hashSync } from 'bcryptjs';
 import { authRepository } from './repository.js';
 import {
@@ -132,7 +135,10 @@ function normalizeLogin(login: unknown): string | null {
 }
 
 /** Проверка пароля — тексты ошибок зеркалят маппинг getErrorMessage() клиента. */
-function validatePassword(password: unknown, minPasswordLength: number): asserts password is string {
+function validatePassword(
+  password: unknown,
+  minPasswordLength: number,
+): asserts password is string {
   if (typeof password !== 'string' || password.length < minPasswordLength) {
     throw new AppError(`Пароль должен содержать не менее ${minPasswordLength} символов`, 400);
   }
@@ -145,6 +151,13 @@ export class AuthService {
   /**
    * Регистрация: подтверждения контакта нет (email-инфраструктуры в проекте
    * никогда не было), поэтому сразу логиним пользователя и выдаём пару токенов.
+   *
+   * Согласие на обработку ПДн (п.4 требований): сервер обязан получить флаг
+   * consent === true — фронтенд-валидации не доверяем. Аккаунт и первая
+   * запись журнала (granted/registration) создаются в ОДНОЙ транзакции:
+   * пользователь без consent_log появиться не может. document_version — та
+   * версия, что is_current на момент запроса (версию клиента не принимаем),
+   * created_at отдаёт база.
    */
   async register(input: CredentialsInput, meta: RequestMeta): Promise<SessionResponse> {
     const login = normalizeLogin(input.login);
@@ -152,12 +165,38 @@ export class AuthService {
       throw new AppError(INVALID_LOGIN_MESSAGE, 400);
     }
     validatePassword(input.password, MIN_PASSWORD_LENGTH);
+    if (input.consent !== true) {
+      throw new AppError(
+        'Необходимо согласие на обработку персональных данных',
+        400,
+        'CONSENT_REQUIRED',
+      );
+    }
 
     const passwordHash = await hash(input.password, BCRYPT_ROUNDS);
 
     let user: UserRow;
     try {
-      user = await authRepository.createUser(login, passwordHash);
+      user = await withTransaction(async (client) => {
+        const version = await consentRepository.getCurrentVersion(
+          client,
+          GATING_DOCUMENT_TYPE,
+        );
+        if (!version) {
+          throw new AppError('Документ согласия ещё не опубликован. Повторите попытку позже.', 500);
+        }
+        const created = await authRepository.createUser(login, passwordHash, client);
+        await consentRepository.insertEntry(client, {
+          userId: created.id,
+          ip: meta.ip ?? 'unknown',
+          userAgent: meta.userAgent ?? null,
+          documentType: GATING_DOCUMENT_TYPE,
+          documentVersion: version,
+          formId: 'registration',
+          action: 'granted',
+        });
+        return created;
+      });
     } catch (err) {
       // 23505 — unique_violation на индексе users.login: тот же смысл,
       // что 'User already registered' у прежнего auth-сервиса (см. errorMessage.ts клиента).

@@ -1,11 +1,13 @@
 import { authenticate } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { goalsController } from './controller.js';
 
 export const goalsRouter = Router();
 
 // Все маршруты требуют Bearer access-токен: цели видны только владельцу.
-goalsRouter.use(authenticate);
+// Плюс requireConsent — до принятия согласия финансовый функционал недоступен.
+goalsRouter.use(authenticate, requireConsent);
 
 // GET /goals (хук useGoals): цели накоплений пользователя
 // (одна цель на savings-категорию). Секция целей на странице «Накопления»

@@ -5,7 +5,8 @@
 --   * аккаунт и профиль — одна таблица users (роль, стартовый баланс,
 --     валюта, онбординг, отметка активности живут в ней же);
 --   * доступ контролирует серверный слой (Express), политик уровня БД нет;
---   * внешние ключи с каскадным удалением;
+--   * внешние ключи с каскадным удалением; исключение — consent_log:
+--     FK без каскада, журнал согласий переживает владельца (хранение >= 3 лет);
 --   * перечисления ограничены CHECK-констрейнтами;
 --   * operations.date — тип date;
 --   * уникальность code отчёта в рамках пользователя enforced индексом.
@@ -130,6 +131,59 @@ create index refresh_tokens_user_id_idx on public.refresh_tokens (user_id);
 create index refresh_tokens_expires_at_idx on public.refresh_tokens (expires_at);
 -- код периода уникален в рамках пользователя (пустой код не учитывается)
 create unique index reports_user_id_code_key on public.reports (user_id, code) where code <> '';
+
+-- ── Юридические документы (согласие на обработку ПДн и т.п.) ────────────────
+-- Append-only реестр версий: строка опубликованной версии никогда не
+-- редактируется (кроме осознанной косметической правки через CLI --cosmetic),
+-- любое изменение текста — новая строка с новым version. content — Markdown,
+-- HTML рендерит клиент (react-markdown). content_hash — sha256 от content;
+-- несовпадение при выдаче = инцидент целостности (лог в _legal/service.ts).
+-- Публикация — только src/scripts/publish-legal-document.ts (см. AGENTS.md).
+create table public.legal_documents (
+  id uuid primary key default gen_random_uuid(),
+  document_type text not null,
+  version text not null,                        -- '2026-09-12' (дата публикации)
+  published_at timestamptz not null default now(),
+  is_current boolean not null default false,
+  content text not null,                        -- Markdown
+  content_hash varchar(64) not null,            -- hex sha256(content)
+  unique (document_type, version)
+);
+
+-- Ровно одна «текущая» версия на document_type — на уровне БД, а не только
+-- в транзакции публикации.
+create unique index legal_documents_current_key
+  on public.legal_documents (document_type)
+  where is_current;
+
+-- ── Журнал согласий (append-only юридически значимых событий) ────────────────
+-- Только вставка: UPDATE/DELETE строк не бывает; отзыв — новая строка
+-- action='revoked', удаление (обезличивание) данных — строка action='erased'.
+-- created_at проставляет сервер (DEFAULT now()), от клиента не принимается.
+-- ip_address/user_agent — ПЕРСОНАЛЬНЫЕ ДАННЫЕ, лежат зашифрованными
+-- pgp_sym_encrypt(armor): это сознательный пересмотр политики «IP не храним»
+-- (см. 2026-09-12-drop-ip-columns.sql) ради юридической значимости согласия.
+-- Ключ шифрования — env CONSENT_ENC_KEY; расшифровка только руками в psql
+-- (dearmor + pgp_sym_decrypt), приложение IP не читает.
+-- Строки journal-а живут не менее 3 лет после прекращения обработки, поэтому
+-- FK на users(id) БЕЗ каскада: physical delete пользователя невозможен
+-- (вместо него — обезличивание аккаунта, строка users остаётся).
+create table public.consent_log (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.users (id),
+  ip_address text not null,                     -- pgp armored
+  user_agent text,                              -- pgp armored или null
+  document_type text not null,
+  document_version text not null,
+  form_id text not null check (form_id in ('registration', 'consent_gate', 'account_settings', 'admin')),
+  action text not null check (action in ('granted', 'revoked', 'erased')),
+  created_at timestamptz not null default now(),
+  foreign key (document_type, document_version)
+    references public.legal_documents (document_type, version)
+);
+
+create index idx_consent_log_user
+  on public.consent_log (user_id, document_type, created_at desc);
 
 -- ── Логи HTTP-запросов (просмотр — админка, метрики считаются SQL-ем) ──────
 -- Пишет middleware requestLoggingMiddleware: метод, путь, статус, длительность,

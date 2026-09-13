@@ -1,11 +1,15 @@
 import { authenticate } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { operationsController } from './controller.js';
 
 export const operationsRouter = Router();
 
 // Все маршруты требуют Bearer access-токен: операции видны только их владельцу.
-operationsRouter.use(authenticate);
+// Поверх — requireConsent: без действующего согласия на обработку ПДн доступ
+// к финансовым данным закрыт (п.5 требований), клиент по 403 CONSENT_REQUIRED
+// показывает блокирующий consent-gate.
+operationsRouter.use(authenticate, requireConsent);
 
 // GET /operations?reportId={id}&type={type} (хуки useOperations, useSavingsReportOperations):
 // операции одного отчёта, отфильтрованные по типу

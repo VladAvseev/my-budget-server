@@ -1,4 +1,5 @@
 import { pool } from '@/db/pool.js';
+import { NOT_ANONYMIZED_SQL } from '@/modules/_users/repository.js';
 import type {
   AdminChartMetric,
   AdminDashboardStats,
@@ -38,40 +39,43 @@ export class AdminRepository {
   async getStats(): Promise<AdminDashboardStats> {
     const { rows } = await pool.query<{ data: AdminDashboardStats }>(
       `SELECT jsonb_build_object(
-         'users', (
-           SELECT jsonb_build_object(
-             'total', count(*),
-             'withoutReports', count(*) FILTER (
-               WHERE NOT EXISTS (
-                 SELECT 1 FROM public.reports r WHERE r.user_id = u.id
-               )
-             ),
-             'onboarded', count(*) FILTER (WHERE u.onboarded)
-           )
-           FROM public.users u
-         ),
-         'activity', (
-           SELECT jsonb_build_object(
-             'dau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '1 day'),
-             'wau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '7 days'),
-             'mau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '30 days'),
-             'qau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '90 days'),
-             'sau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '180 days'),
-             'yau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '365 days')
-           )
-           FROM public.users u
-         ),
-         'churn', (
-           SELECT jsonb_build_object(
-             'inactive1d',  count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '1 day'),
-             'inactive7d',  count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '7 days'),
-             'inactive30d', count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '30 days'),
-             'inactive90d', count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '90 days'),
-             'inactive180d',count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '180 days'),
-             'inactive365d',count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '365 days')
-           )
-           FROM public.users u
-         ),
+          'users', (
+            SELECT jsonb_build_object(
+              'total', count(*),
+              'withoutReports', count(*) FILTER (
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM public.reports r WHERE r.user_id = u.id
+                )
+              ),
+              'onboarded', count(*) FILTER (WHERE u.onboarded)
+            )
+            FROM public.users u
+            WHERE ${NOT_ANONYMIZED_SQL}
+          ),
+          'activity', (
+            SELECT jsonb_build_object(
+              'dau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '1 day'),
+              'wau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '7 days'),
+              'mau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '30 days'),
+              'qau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '90 days'),
+              'sau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '180 days'),
+              'yau', count(*) FILTER (WHERE u.last_active_at >= now() - interval '365 days')
+            )
+            FROM public.users u
+            WHERE ${NOT_ANONYMIZED_SQL}
+          ),
+          'churn', (
+            SELECT jsonb_build_object(
+              'inactive1d',  count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '1 day'),
+              'inactive7d',  count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '7 days'),
+              'inactive30d', count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '30 days'),
+              'inactive90d', count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '90 days'),
+              'inactive180d',count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '180 days'),
+              'inactive365d',count(*) FILTER (WHERE u.last_active_at IS NULL OR u.last_active_at < now() - interval '365 days')
+            )
+            FROM public.users u
+            WHERE ${NOT_ANONYMIZED_SQL}
+          ),
          'reports', (
            SELECT jsonb_build_object(
              'total', count(*),
@@ -113,9 +117,7 @@ export class AdminRepository {
     aggregation: OperationsDynamicsAggregation = 'D',
   ): Promise<AdminOperationsDynamics> {
     const roleJoin =
-      audience === 'users'
-        ? `JOIN public.users au ON au.id = o.user_id AND au.role = 'user'`
-        : '';
+      audience === 'users' ? `JOIN public.users au ON au.id = o.user_id AND au.role = 'user'` : '';
     const valueExpression = metric === 'unique_users' ? 'count(distinct o.user_id)' : 'count(*)';
     const trunc = aggregation === 'D' ? 'day' : aggregation === 'M' ? 'month' : 'year';
     const format = aggregation === 'D' ? 'YYYY-MM-DD' : aggregation === 'M' ? 'YYYY-MM' : 'YYYY';
@@ -237,19 +239,11 @@ export class AdminRepository {
   }
 
   /**
-   * Физическое удаление пользователя: на схеме public все доменные таблицы
-   * (reports, operations, categories, accumulations, goals) отваливаются каскадом
-   * (on delete cascade), а request_logs.user_id обнуляется (set null). Возвращает
-   * true, если строка существовала.
-   */
-  async deleteUser(userId: string): Promise<boolean> {
-    const { rowCount } = await pool.query('DELETE FROM public.users WHERE id = $1', [userId]);
-    return (rowCount ?? 0) > 0;
-  }
-
-  /**
    * Все пользователи со статистикой количества
-   * сущностей (LEFT JOIN счётчиков, чтобы нули не терялись).
+   * сущностей (LEFT JOIN счётчиков, чтобы нули не терялись). Обезличенные
+   * «надгробия» (см. usersRepository.anonymize) из списка исключены: для
+   * админки удалённый аккаунт перестаёт существовать, хотя строка users
+   * остаётся ради журнала consent_log.
    */
   async listUsers(): Promise<AdminUserRow[]> {
     const { rows } = await pool.query<{ data: AdminUserRow[] | null }>(
@@ -293,7 +287,8 @@ export class AdminRepository {
       ) a ON a.user_id = u.id
       LEFT JOIN (
         SELECT user_id, count(*) AS cnt FROM public.goals GROUP BY user_id
-      ) g ON g.user_id = u.id`,
+      ) g ON g.user_id = u.id
+      WHERE ${NOT_ANONYMIZED_SQL}`,
     );
     return rows[0].data ?? [];
   }
@@ -301,10 +296,13 @@ export class AdminRepository {
   /**
    * Лёгкий список пользователей для селектов (id + login) без агрегатов и
    * JOIN'ов — только отсортированный по логину обход public.users.
+   * «Надгробия» обезличенных аккаунтов не предлагаются (см. listUsers).
    */
   async listUserOptions(): Promise<AdminUserOption[]> {
     const { rows } = await pool.query<{ user_id: string; login: string }>(
-      `SELECT id AS user_id, login FROM public.users ORDER BY login`,
+      `SELECT id AS user_id, login FROM public.users
+        WHERE ${NOT_ANONYMIZED_SQL}
+        ORDER BY login`,
     );
     return rows.map((row) => ({ userId: row.user_id, login: row.login }));
   }

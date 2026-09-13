@@ -46,9 +46,11 @@ export class OperationsService {
       throw new AppError('Некорректный тип операции', 400);
     }
     const reportId = requireUuid(query.reportId, 'Некорректный идентификатор отчёта');
-    const types = query.type.split(',').map((part) =>
-      requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
-    );
+    const types = query.type
+      .split(',')
+      .map((part) =>
+        requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
+      );
 
     await this.assertReport(reportId, userId);
     const rows = await operationsRepository.listByReport(reportId, types);

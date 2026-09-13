@@ -1,11 +1,13 @@
 import { authenticate } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { categoriesController } from './controller.js';
 
 export const categoriesRouter = Router();
 
 // Все маршруты требуют Bearer access-токен: категории видны только их владельцу.
-categoriesRouter.use(authenticate);
+// Плюс requireConsent — до принятия согласия финансовый функционал недоступен.
+categoriesRouter.use(authenticate, requireConsent);
 
 // GET /categories?type={income|expense|savings} (хуки useCategories/
 // useOverviewCategories): категории текущего пользователя,

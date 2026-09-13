@@ -22,7 +22,9 @@ export class AdminController {
    */
   async getOperationsDynamics(req: Request, res: Response, next: NextFunction) {
     try {
-      const dynamics = await adminService.getOperationsDynamics(req.query as Record<string, unknown>);
+      const dynamics = await adminService.getOperationsDynamics(
+        req.query as Record<string, unknown>,
+      );
       res.status(200).json({ data: dynamics });
     } catch (error) {
       next(error);
@@ -39,10 +41,17 @@ export class AdminController {
     }
   }
 
-  /** DELETE /admin/users/:userId → 204: удаление пользователя со всеми данными. */
+  /**
+   * DELETE /admin/users/:userId → 204: удаление пользователя (обезличивание
+   * с записью revoked/erased в consent_log — physical delete невозможен,
+   * журнал согласий обязан пережить аккаунт).
+   */
   async deleteUser(req: Request, res: Response, next: NextFunction) {
     try {
-      await adminService.deleteUser(req.user!.id, req.params.userId);
+      await adminService.deleteUser(req.user!.id, req.params.userId, {
+        ip: req.ip ?? 'unknown',
+        userAgent: req.headers['user-agent'] ?? null,
+      });
       res.status(204).end();
     } catch (error) {
       next(error);

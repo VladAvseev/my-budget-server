@@ -1,11 +1,13 @@
 import { authenticate } from '@/middlewares/authMiddleware.js';
+import { requireConsent } from '@/middlewares/requireConsentMiddleware.js';
 import { Router } from 'express';
 import { reportsController } from './controller.js';
 
 export const reportsRouter = Router();
 
 // Все маршруты требуют Bearer access-токен: отчёты видны только их владельцу.
-reportsRouter.use(authenticate);
+// Плюс requireConsent — до принятия согласия финансовый функционал недоступен.
+reportsRouter.use(authenticate, requireConsent);
 
 // GET /reports (хуки useReports): список отчётов текущего
 // пользователя. Страница «Отчёты» (ReportsList), главная (LastReportCard,

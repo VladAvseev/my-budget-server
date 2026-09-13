@@ -1,6 +1,9 @@
+import { consentService } from '@/modules/_consent/service.js';
+import { isAnonymizedLogin, usersRepository } from '@/modules/_users/repository.js';
 import { AppError } from '@/shared/appError.js';
 import { requireUuid } from '@/shared/validate.js';
 import { adminRepository } from './repository.js';
+import type { ConsentRequestMeta } from '@/modules/_consent/types.js';
 import type {
   AdminChartMetric,
   AdminDashboardStats,
@@ -124,19 +127,27 @@ export class AdminService {
   }
 
   /**
-   * Удаление пользователя администратором. Своё удаление запрещено (400), чтобы
-   * админ не остался без доступа к панели; несуществующий id → 404. Все данные
-   * пользователя серверная БД снимает каскадом.
+   * Удаление пользователя администратором (п.7 сценарий): revoked →
+   * обезличивание данных → erased с form_id='admin'. Своё удаление запрещено
+   * (400), чтобы админ не остался без доступа к панели. Physical delete строки
+   * users невозможен: consent_log обязан пережить аккаунт (хранение >= 3 лет,
+   * FK без каскада), поэтому вместо него — обезличивание. Уже обезличенный
+   * «надгробный» аккаунт считается несуществующим (404) и скрыт из списков.
    */
-  async deleteUser(currentUserId: string, targetUserId: unknown): Promise<void> {
+  async deleteUser(
+    currentUserId: string,
+    targetUserId: unknown,
+    meta: ConsentRequestMeta,
+  ): Promise<void> {
     const userId = requireUuid(targetUserId);
     if (currentUserId.toLowerCase() === userId.toLowerCase()) {
       throw new AppError('Нельзя удалить собственный аккаунт', 400);
     }
-    const deleted = await adminRepository.deleteUser(userId);
-    if (!deleted) {
+    const target = await usersRepository.getById(userId);
+    if (!target || isAnonymizedLogin(target.login)) {
       throw new AppError('Пользователь не найден', 404);
     }
+    await consentService.revokeAndErase(userId, meta, 'admin');
   }
 
   async listUsers(): Promise<AdminUserRow[]> {

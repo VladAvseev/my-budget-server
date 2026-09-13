@@ -1,4 +1,5 @@
 import { pool } from '@/db/pool.js';
+import type { PoolClient } from 'pg';
 import type {
   HomeBootstrap,
   OnboardingState,
@@ -7,6 +8,19 @@ import type {
   UserRow,
   UserSummary,
 } from './types.js';
+
+/**
+ * Формат логина обезличенного аккаунта: 'deleted-' + uuid (45 символов).
+ * Зарегистрировать такой нельзя (валидатор разрешает ≤20 символов), поэтому
+ * совпадения с живыми логинами нет; распознаётся и в SQL (админ-списки/
+ * статистика исключают «надгробия»), и в сервисе.
+ */
+export function isAnonymizedLogin(login: string): boolean {
+  return /^deleted-[0-9a-f-]{36}$/.test(login);
+}
+
+/** SQL-предикат того же фильтра для запросов к public.users (алиас колонки — login). */
+export const NOT_ANONYMIZED_SQL = "login !~ '^deleted-[0-9a-f-]{36}$'";
 
 /**
  * «Сырая» строка большого CTE-запроса bootstrap: numeric-суммы pg отдаёт
@@ -100,6 +114,41 @@ export class UsersRepository {
       values,
     );
     return rows[0] ?? null;
+  }
+
+  /**
+   * Обезличивание аккаунта (п.7 требований, вместо physical delete):
+   * финансовые данные стираются безвозвратно (goals/category_limits уходят
+   * каскадом categories/reports), сессии удаляются, а строка users остаётся
+   * «надгробием» с недостижимым логином/паролем — на неё ссылается
+   * обязательный к хранению журнал consent_log (FK без cascade).
+   * Выполняется внутри транзакции вызывающего (см. _consent/service).
+   */
+  async anonymize(
+    client: PoolClient,
+    userId: string,
+    unreachablePasswordHash: string,
+  ): Promise<void> {
+    await client.query('DELETE FROM public.operations WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.reports WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.categories WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.accumulations WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.refresh_tokens WHERE user_id = $1', [userId]);
+    await client.query(
+      `UPDATE public.users
+          SET login = 'deleted-' || id,
+              password_hash = $2,
+              role = 'user',
+              start_balance = 0,
+              currency = NULL,
+              onboarded = false,
+              last_active_at = NULL,
+              failed_login_attempts = 0,
+              locked_until = NULL,
+              updated_at = now()
+        WHERE id = $1`,
+      [userId, unreachablePasswordHash],
+    );
   }
 
   /**

@@ -58,6 +58,11 @@ npm run start        # запуск из dist/
 npm run lint         # проверка ESLint
 npm run format       # форматирование Prettier
 npm run typecheck    # проверка типов без компиляции
+# публикация/проверка юридических документов (см. «Легальные документы и согласия»)
+npm run legal:publish -- --all --dry-run   # проверка текстов + диффа с БД без записи
+npm run legal:publish -- --all             # публикация всех файлов docs/legal/
+npm run legal:publish -- --type privacy_policy --file docs/legal/privacy_policy.md
+npm run legal:verify  # сверка content_hash с фактическим sha256 ВСЕХ типов (инциденты целостности)
 ```
 
 Порядок проверки перед коммитом: `lint → typecheck → test`
@@ -69,8 +74,10 @@ src/
   index.ts                     — точка входа
   app.ts                       — Express-приложение (middleware, монтирование /api/v1)
   router.ts                    — корневой роутер API (подключает роутеры модулей)
-  middlewares/                 — authenticate, requireAdmin, rate-limit,
-                                 error/notFound, requestLogging (логи в БД)
+  middlewares/                 — authenticate, requireAdmin, requireConsent,
+                                 rate-limit, error/notFound, requestLogging (логи в БД)
+  scripts/                     — publish-legal-document.ts (CLI публикации документов,
+                                 собирается в dist/scripts)
   modules/
     _<moduleName>/
       router.ts      — определение роутов
@@ -168,7 +175,82 @@ src/
   остаётся NULL — восстановить по почте нельзя, она в логах не хранилась).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
-- **Конфигурация:** `.env` файл (не `.env.example`)
+- **Конфигурация:** `.env` файл (не `.env.example`); ключи: `PORT`, `CORS_ORIGIN`,
+  `JWT_SECRET`, `DATABASE_URL`, `LOG_RETENTION_DAYS`, `CONSENT_ENC_KEY`
+  (шифрование ip/ua в consent_log; без него регистрация/принятие согласия = 500)
+
+## Легальные документы и согласия (152-ФЗ + 99-З РБ)
+
+Реализация требований `PersonalData.md` (миграция
+`db/migrations/2026-09-12-consent-legal-documents.sql`).
+
+- **`legal_documents`** — версионируемые тексты (Markdown в `content`,
+  `content_hash` = sha256; HTML не хранится и не рендерится на сервере —
+  клиент использует react-markdown). Ровно одна `is_current` на тип
+  (частичный unique-индекс). Строка опубликованной версии не редактируется;
+  косметическая правка — только `legal:publish --cosmetic` с фиксацией факта
+  в коммите. `_legal` — только публичное чтение:
+  `GET /legal/:documentType/current` и `/:documentType/:version`
+  (без авторизации; ответ с сильным ETag=hash; при расхождении хэша с
+  содержимым — console.warn «ИНЦИДЕНТ ЦЕЛОСТНОСТИ», текст всё равно отдаётся).
+- **Типы документов** — `KNOWN_DOCUMENT_TYPES` (`_legal/types.ts`): два
+  документа — `privacy_policy` (гейтит consent-gate: её принятие считается
+  согласием на обработку ПДн, константа `_consent/GATING_DOCUMENT_TYPE`) и
+  `terms_of_use` (информационный — публикации НЕ инвалидируют согласия).
+  Ссылки/заголовки в
+  UI и slug'ы — в реестре клиента `client/src/shared/legal/documents.ts`
+  (зеркало); новый тип требует правки обоих реестров, иначе CLI его
+  отклоняет (`--allow-unknown` — только для служебных вне UI).
+- **Публикация** — только CLI `src/scripts/publish-legal-document.ts`. Исходник
+  текста хранится в git: `server/docs/legal/<document_type>.md` (PersonalData.md
+  п.2 пересмотрен 2026-09-12: файл — вход CLI, канон опубликованного текста —
+  БД). В проде каталог примонтирован в api-контейнер (`./docs/legal:/docs:ro`,
+  см. docker-compose.yml), публикация после deploy-api одной командой
+  (`--all` берёт все файлы каталога, `--docs-dir`/`LEGAL_DOCS_DIR` меняет его,
+  `--dry-run` и префлайт raw-HTML/плейсхолдеров — до любой записи):
+  `docker compose exec api node dist/scripts/publish-legal-document.js --all --docs-dir /docs --dry-run`,
+  затем без `--dry-run` (dev: `npm run legal:publish -- --all`).
+  merge в develop ≠ опубликовано; идентичный текущему текст скрипт отказывается
+  публиковать (защита от холостой инвалидации согласий). Версия = дата по МСК,
+  конфликт дня → суффикс -2. Косметическая правка — `--cosmetic` с фиксацией
+  факта в коммите. Порядок деплоя новой фичи: миграция → `.env` +=
+  `CONSENT_ENC_KEY` → deploy api → публикация v1 → deploy web. Первый пуск
+  в проде: `terms_of_use` можно раньше, `privacy_policy` (гейтящая) —
+  последним, web со ссылками деплоится уже после публикации.
+- **`consent_log`** — append-only журнал (только INSERT с сервера;
+  `created_at` — DEFAULT now()). `form_id`: registration | consent_gate |
+  account_settings | admin; `action`: granted | revoked | erased. Композитный
+  FK на (document_type, version) — версия обязана существовать. `user_id` —
+  FK БЕЗ каскада: журнал обязан пережить пользователя (>= 3 года), поэтому
+  physical delete аккаунта на уровне БД невозможен; вместо него — обезличивание
+  (`consentService.revokeAndErase`: revoked → удаление финансовых данных +
+  сессий, логин 'deleted-<uuid>' + недостижимый пароль → erased). Тот же
+  сценарий обслуживает `DELETE /users/me` (самоудаление) и
+  `DELETE /admin/users/:userId` (админ; в списках/статистике админки строки
+  'deleted-<uuid>' скрыты константой `NOT_ANONYMIZED_SQL`).
+- **ip/ua в журнале шифрованы** pgcrypto (`pgp_sym_encrypt`, armor), ключ —
+  env `CONSENT_ENC_KEY` (без него запись согласия = 500). Это сознательное
+  исключение из политики «IP не храним»: здесь адрес — доказательство
+  юридически значимого события. Расшифровка только руками (SQL-запрос в
+  шапке миграции). `request_logs` и `refresh_tokens` по-прежнему без IP.
+- **Consent-gate (п.5):** логика `check_consent()` — в `_consent/service.ts`
+  (нет записи / revoked / несовпадение с текущей версией → needsConsent;
+  неопубликованный документ гейт НЕ включает). Эндпоинты: `GET
+  /consent/status`, `POST /consent/grant` (версию сервер берёт сам),
+  `POST /consent/revoke`. `requireConsent` висит на бизнес-модулях
+  (operations/reports/categories/accumulations/goals/admin) и отдаёт 403 с
+  `error.code='CONSENT_REQUIRED'` (поле кода добавлено в envelope
+  errorMiddleware — обратно совместимо); /auth, /users и /consent доступны и
+  в состоянии NEEDS_CONSENT (путь к принятию и удалению аккаунта). Состояние
+  кэшируется в памяти процесса на 60 c (по образцу touchLastActive);
+  мутации согласия сбрасывают кэш, публикация из CLI — по истечении TTL.
+  `ConsentStateDto` кроме `currentVersion` отдаёт `grantedVersion` — версию
+  последней `granted`-записи журнала (профиль показывает её ссылкой на
+  исторический текст; после отзыва latest — revoked/erased, но grantedVersion
+  остаётся).
+- **Регистрация (п.4):** тело `POST /auth/register` обязано содержать
+  `consent: true` (400 + code CONSENT_REQUIRED иначе); строка users и
+  первая запись журнала пишутся в одной транзакции (`withTransaction`).
 
 ## Безопасность
 
@@ -190,6 +272,8 @@ src/
   Отозванные/истёкшие строки чистятся вероятностно (~1/200 из createSession,
   запас хранения 30 дней). В `refresh_tokens` пишем только `user_agent` (атрибутика
   устройства); IP-адрес сессий не сохраняем (см. `db/migrations/2026-09-12-drop-ip-columns.sql`).
+  Единственное место, где адрес пишется, — зашифрованный `consent_log`
+  (юридически значимое согласие, см. «Легальные документы и согласия»).
 - **Ошибки:** в `errorMiddleware` клиенту отдаётся текст только у `AppError`;
   прочие ошибки (включая сбои pg) → «Внутренняя ошибка сервера» (500), детали
   — только в stderr. Ошибки парсинга тела → русские 400/413.
@@ -199,8 +283,11 @@ src/
 - **`trust proxy: 2`** (app.ts) завязан на точную топологию из ДВА обратных
   прокси (хостовый nginx → nginx web-контейнера). При изменении числа прокси
   менять и это число, иначе `req.ip` (а с ним per-IP лимиты) станет
-  подделываемым через X-Forwarded-For. `req.ip` больше нигде не сохраняется —
-  IP убран из логов и из refresh_tokens.
+  подделываемым через X-Forwarded-For. Из `req.ip` больше ничего не строим;
+  IP убран из логов и из refresh_tokens — исключение составляет только
+  зашифрованный `consent_log` (там адрес — доказательство события согласия).
+  Число trust proxy влияет и на него: неверное число = подделываемый IP в
+  юридическом журнале.
 
 ## Типичная ошибка
 
