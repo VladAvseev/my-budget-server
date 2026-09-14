@@ -8,7 +8,7 @@ import type { NextFunction, Request, Response } from 'express';
  * строкам исключён на уровне сервера.
  */
 export class UsersController {
-  /** GET /users/me → 200: профиль (логин, роль, баланс, валюта, onboarded, даты). */
+  /** GET /users/me → 200: профиль (логин, роль, валюта, onboarded, даты). */
   async getMe(req: Request, res: Response, next: NextFunction) {
     try {
       const user = await usersService.getMe(req.user!.id);
@@ -18,7 +18,7 @@ export class UsersController {
     }
   }
 
-  /** PATCH /users/me → 200: обновлённый профиль. Тело: { startBalance?, currency?, onboarded? }. */
+  /** PATCH /users/me → 200: обновлённый профиль. Тело: { currency?, onboarded? }. */
   async updateMe(req: Request, res: Response, next: NextFunction) {
     try {
       const user = await usersService.updateMe(req.user!.id, req.body ?? {});
@@ -38,7 +38,7 @@ export class UsersController {
     }
   }
 
-  /** GET /users/me/summary → 200: { income, expense, savings, daily } по всем отчётам. */
+  /** GET /users/me/summary → 200: { income, expense, daily } по всем операциям. */
   async getSummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await usersService.getSummary(req.user!.id);

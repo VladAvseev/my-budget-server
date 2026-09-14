@@ -9,10 +9,10 @@ export const usersRouter = Router();
 usersRouter.use(authenticate);
 
 // GET /users/me (хук useProfile):
-// профиль текущего пользователя: логин, роль, start_balance, currency, onboarded.
+// профиль текущего пользователя: логин, роль, currency, onboarded.
 usersRouter.get('/me', usersController.getMe);
 
-// PATCH /users/me: { startBalance?, currency?, onboarded? } → обновлённый профиль.
+// PATCH /users/me: { currency?, onboarded? } → обновлённый профиль.
 usersRouter.patch('/me', usersController.updateMe);
 
 // GET /users/me/onboarding (useOnboardingChecklist):
@@ -24,8 +24,8 @@ usersRouter.get('/me/onboarding', usersController.getOnboardingState);
 usersRouter.get('/me/summary', usersController.getSummary);
 
 // GET /users/me/bootstrap (useBootstrap, главная):
-// профиль-срез, онбординг-счётчики, последний период со сводкой, глобальные
-// суммы, структура накоплений и цели — один CTE-запрос вместо ~8 запросов.
+// профиль-срез, онбординг-счётчики, последний период со сводкой и глобальные
+// суммы — один CTE-запрос вместо нескольких карточных запросов.
 usersRouter.get('/me/bootstrap', usersController.getBootstrap);
 
 // DELETE /users/me: self-удаление — тот же сценарий, что отзыв согласия

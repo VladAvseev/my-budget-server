@@ -2,8 +2,9 @@
  * Типы модуля users.
  *
  * Аккаунт и профиль живут в одной таблице `public.users` (см. db/schema.sql):
- * роль, стартовый баланс, валюта и отметка активности — её колонки.
- * Формы ответов совпадают с тем, что клиент получал от прежнего бэкенда.
+ * роль, валюта и отметка активности — её колонки. Стартовый баланс вынесен в
+ * `accounts.initial_balance`, накопления — тоже счета, а не профиль.
+ * Формы ответов совпадают с тем, что клиент получает от REST-бэкенда.
  */
 
 /** Строка таблицы `users` ровно как её отдаёт postgres (snake_case, numeric — строкой). */
@@ -13,8 +14,6 @@ export interface UserRow {
   /** bcrypt-хэш — НИКОГДА не должен покидать сервер (в PublicUser его нет). */
   password_hash: string;
   role: 'user' | 'admin';
-  /** numeric в драйвере pg всегда приходит строкой, конвертим при маппинге. */
-  start_balance: string;
   currency: string | null;
   onboarded: boolean;
   last_active_at: Date | null;
@@ -34,7 +33,6 @@ export interface PublicUser {
   id: string;
   login: string;
   role: 'user' | 'admin';
-  startBalance: number;
   currency: string | null;
   onboarded: boolean;
   lastActiveAt: string | null;
@@ -43,13 +41,11 @@ export interface PublicUser {
 }
 
 /**
- * Тело PATCH /users/me. Поля строго whitelisted: меняются только стартовый
- * баланс, валюта и флаг онбординга — логин и роль через этот эндпоинт
- * изменить нельзя.
- * Источник полей — StartBalanceCard и OnboardingCard клиента.
+ * Тело PATCH /users/me. Поля строго whitelisted: меняются только валюта
+ * и флаг онбординга — логин и роль через этот эндпоинт изменить нельзя.
+ * Источник полей — AccountsSection и OnboardingCard клиента.
  */
 export interface UpdateProfileInput {
-  startBalance?: number;
   currency?: string | null;
   onboarded?: boolean;
 }
@@ -65,8 +61,6 @@ export interface OnboardingState {
 export interface UserSummary {
   income: number;
   expense: number;
-  /** savings минус savings_out — «накоплено с учётом снятий». */
-  savings: number;
   /** расходы из дневного бюджета. */
   daily: number;
 }
@@ -74,13 +68,12 @@ export interface UserSummary {
 /**
  * Ответ GET /users/me/bootstrap — все «цифры» главной за один round-trip.
  * Агрегаты считает PostgreSQL (один CTE-запрос); карточки клиента читают
- * срезы этого DTO. Гранулярные эндпоинты (/reports, /accumulations, …)
+ * срезы этого DTO. Гранулярные эндпоинты (/reports, /accounts, …)
  * остаются для своих страниц — bootstrap только для главной.
  */
 export interface HomeBootstrap {
   /** Срез профиля, нужный главной (остальное — в PublicUser). */
   profile: {
-    startBalance: number;
     currency: string | null;
     onboarded: boolean;
   };
@@ -88,12 +81,8 @@ export interface HomeBootstrap {
   onboarding: OnboardingState;
   /** Карточка «Последний период»: отчёт с максимальной period_end + его сводка. */
   lastReport: BootstrapLastReport | null;
-  /** Глобальные суммы по всем операциям + сумма накоплений (стартовый капитал). */
-  globalTotals: UserSummary & { accumulationsTotal: number };
-  /** Структура накоплений по категориям (карточка «Накопления»). */
-  savingsStructure: BootstrapSavingsItem[];
-  /** Цели без вычислений: общий прогресс считает клиент (shared/utils/goals.ts). */
-  goals: BootstrapGoalItem[];
+  /** Глобальные суммы по всем операциям. */
+  globalTotals: UserSummary;
 }
 
 /** Элемент lastReport в bootstrap: ключи отчёта — как в _reports.ReportDto. */
@@ -103,21 +92,6 @@ export interface BootstrapLastReport {
   /** 'YYYY-MM-DD' | null (DATE-парсер отключён в pool.ts). */
   period_start: string | null;
   period_end: string | null;
-  /** Сводка сумм по типам операций отчёта (форма _reports.ReportSummary). */
+  /** Сводка сумм по типам операций отчёта (та же форма, что у /users/me/summary). */
   summary: UserSummary;
-}
-
-/** Элемент savingsStructure: сумма accumulations + знаковых savings-операций. */
-export interface BootstrapSavingsItem {
-  /** null — накопления без категории (лейбл рисует клиент). */
-  categoryId: string | null;
-  name: string | null;
-  color: string | null;
-  amount: number;
-}
-
-/** Элемент goals: unique(user_id, category_id) — одна цель на категорию. */
-export interface BootstrapGoalItem {
-  categoryId: string;
-  amount: number;
 }

@@ -29,15 +29,6 @@ export class UsersService {
   async updateMe(userId: string, body: Record<string, unknown>): Promise<PublicUser> {
     const input: UpdateProfileInput = {};
 
-    // startBalance: число >= 0 — как в StartBalanceCard клиента (amount >= 0).
-    if (body.startBalance !== undefined) {
-      const value = Number(body.startBalance);
-      if (!Number.isFinite(value) || value < 0) {
-        throw new AppError('Стартовый баланс должен быть неотрицательным числом', 400);
-      }
-      input.startBalance = value;
-    }
-
     // currency: ISO-код ('RUB', 'USD', ...) или null = сбросить выбор.
     if (body.currency !== undefined) {
       if (
@@ -74,7 +65,7 @@ export class UsersService {
     return usersRepository.getOnboardingState(userId);
   }
 
-  /** Глобальная сводка сумм по всем отчётам (AppLayout, useGlobalBalance). */
+  /** Глобальная сводка сумм по всем операциям (AppLayout, useGlobalBalance). */
   async getSummary(userId: string): Promise<UserSummary> {
     return usersRepository.getSummary(userId);
   }
