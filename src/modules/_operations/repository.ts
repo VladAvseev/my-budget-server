@@ -128,6 +128,7 @@ export class OperationsRepository {
               coalesce(sum(amount::numeric), 0) AS amount
          FROM public.operations
         WHERE report_id = ANY($1::uuid[]) AND user_id = $2
+          AND type IN ('income', 'expense', 'daily')
         GROUP BY report_id, type, category_id`,
       [reportIds, userId],
     );

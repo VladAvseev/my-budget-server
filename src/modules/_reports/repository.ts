@@ -204,35 +204,32 @@ export class ReportsRepository {
   }
 
   /**
-   * Помесячная динамика капитала для графика overview: income - expense - daily,
-   * свёрнутый в месяц начала периода отчёта, с нулевыми месяцами-заполнителями
-   * от первого отчёта до текущего месяца. Клиент лишь кумулирует и добавляет
-   * базу (стартовый баланс + накопления) — сырые операции на график не качаем.
+   * Дельта по датам операций всех счетов, включая операции без отчёта.
+   * Изменение или удаление отчёта не переносит денежный поток в другой месяц.
+   * Переводы не меняют капитал. Текущий капитал клиент получает из /accounts.
    */
   async listCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     const { rows } = await pool.query<{ month: string; delta: string }>(
-      `WITH bounds AS (
-         SELECT date_trunc('month', min(period_start)) AS first_month,
-                date_trunc('month', CURRENT_DATE)      AS current_month
-           FROM public.reports
-          WHERE user_id = $1
-       ),
-       by_month AS (
-         SELECT date_trunc('month', r.period_start) AS month,
-                coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)
-                  - coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0)
-                  - coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'daily'), 0) AS delta
+      `WITH dated AS (
+         SELECT date_trunc('month', coalesce(o.date, o.created_at::date)) AS month,
+                o.type, o.amount
            FROM public.operations o
-           JOIN public.reports r ON r.id = o.report_id
-          WHERE o.user_id = $1
-            AND r.period_start IS NOT NULL
-          GROUP BY 1
+          WHERE o.user_id = $1 AND o.type IN ('income', 'expense', 'daily')
+       ), bounds AS (
+         SELECT min(month) AS first_month,
+                greatest(max(month), date_trunc('month', CURRENT_DATE)) AS last_month
+           FROM dated
+       ), by_month AS (
+         SELECT month,
+                coalesce(sum(amount) FILTER (WHERE type = 'income'), 0)
+                  - coalesce(sum(amount) FILTER (WHERE type IN ('expense', 'daily')), 0) AS delta
+           FROM dated
+          GROUP BY month
        )
-       SELECT to_char(gs.month, 'YYYY-MM') AS month,
-              coalesce(b.delta, 0)        AS delta
+       SELECT to_char(gs.month, 'YYYY-MM') AS month, coalesce(b.delta, 0) AS delta
          FROM bounds bo
          CROSS JOIN LATERAL generate_series(
-           bo.first_month, bo.current_month, interval '1 month'
+           bo.first_month, bo.last_month, interval '1 month'
          ) AS gs(month)
          LEFT JOIN by_month b ON b.month = gs.month
         ORDER BY gs.month`,
