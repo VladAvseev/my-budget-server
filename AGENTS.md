@@ -22,7 +22,7 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
   машине разворачивать оттуда, shipped-конфиги fail2ban не править.
 - Схема БД: `db/schema.sql` (полная, рассчитана на пустую базу — на живой БД
   целиком не запускать), применяется автоматически при первом старте тома
-  `pgdata`; дальнейшие правки — двумя коммитами: в `db/schema.sql` (для свежих
+  `pgdata`; дальнейшие правки — в двух местах: в `db/schema.sql` (для свежих
   установок) и отдельным идемпотентным файлом в `db/migrations/` для догона
   боевой БД. Применение: `docker compose exec db psql -U mybudget -d mybudget`
   и вставить содержимое файла; неинтерактивно из пайпа — только с `-T`:
@@ -58,7 +58,7 @@ REST-бэкенд приложения my-budget: Express + TypeScript + Postgre
 ## Команды
 
 ```bash
-npm install          # установить зависимости
+npm ci               # установить зависимости по lock-файлу при необходимости
 npm run dev          # запуск с HMR (nodemon + tsx)
 npm run build        # компиляция в dist/
 npm run start        # запуск из dist/
@@ -72,7 +72,7 @@ npm run legal:publish -- --type privacy_policy --file docs/legal/privacy_policy.
 npm run legal:verify  # сверка content_hash с фактическим sha256 ВСЕХ типов (инциденты целостности)
 ```
 
-Порядок проверки перед коммитом: `lint → typecheck → test`
+После изменения кода: `npm run lint → npm run typecheck`. Для изменений только документации эти проверки не нужны. Автоматических тестов и команды `test` пока нет.
 
 ## Структура проекта
 
@@ -137,49 +137,10 @@ src/
 
 - **Path alias:** `@/` → `./src/` (настроен в `tsconfig.json`)
 - **Импорт типов:** использовать `import type` ( enforced ESLint + TS)
-- **Логирование запросов:** `requestLoggingMiddleware` пишет каждый HTTP-запрос
-  в таблицу `public.request_logs` (схема — `db/schema.sql`): дата/время, метод,
-  путь, статус, длительность, текст ошибки, user_id/user_role/is_authenticated.
-  Автор — из
-  `req.user`, который заполняет `authenticate`; пишется в `res.on('finish')`,
-  поэтому к этому моменту уже известен статус. `user_role` — роль автора из
-  JWT-claim на момент запроса ('user' | 'admin', null для неавторизованных):
-  фиксируется именно тогда, т.к. роль в `users` со временем может измениться.
-  `is_authenticated` фиксирует факт
-  авторизации на момент запроса и отличается от `user_id is null` (после
-  `on delete set null` строки удалённого юзера остались бы «без авторизации»).
-  Тела запроса и ответа, query, User-Agent и IP в базу НЕ пишутся — они занимали
-  основной объём таблицы и светили данные; текст ошибки извлекается на лету из
-  envelope `{ error: { message } }` и сохраняется только для статусов >= 400
-  (обрезается до 512 символов). UUID- и числовые сегменты пути пишутся как `:id`
-  (`/api/v1/reports/:id`) — иначе метрики топов группировали бы каждый id
-  отдельно; GET'ы админ-панели (`/api/v1/admin/*`) не логируются (опросы
-  дашбордов заглушили бы таблицу), но не-GET админ-мутации логируются как
-  audit trail (user_id, роль); публичного `/health` в API больше нет;
-  вставка fire-and-forget. Env:
-  `LOG_RETENTION_DAYS` (по умолчанию 30, устаревшие
-  строки middleware удаляет сам, вероятностно ~1 раз на 200 запросов).
-  Просмотр/метрики — `GET /admin/logs` (фильтры `status`, `userId=<uuid>` или
-  `userId=anonymous` — только запросы без авторизации, `methods=GET,POST` —
-  список HTTP-методов через запятую, пусто — все; сортировка
-  `sort=date|duration` + `order=asc|desc`, по умолчанию свежие сверху),
-  `GET /admin/logs/metrics`
-  (вкладка «Логи» админ-панели клиента; логин автора тянется `LEFT JOIN users`;
-  строка с ошибкой раскрывается по клику и показывает текст ошибки).
-  График динамики логов —
-  `GET /admin/logs/dynamics?audience=all|users&metric=count|unique_users&bucket=hour|day`:
-  считает логи по МСК-часам или МСК-суткам (`date_trunc(..., created_at AT TIME ZONE
-  'Europe/Moscow')`), аудитория `users` фильтрует по `user_role = 'user'`
-  (без админов и без неавторизованных); метрика `unique_users` считает
-  `count(distinct user_id)` на выбранном бакете, поэтому клиент не агрегирует
-  часы в сутки суммированием.
-  Тот же набор фильтров/метрик есть у
-  `GET /admin/dashboard/operations-dynamics`
-  (для `users` операции фильтруются JOIN'ом `users.role = 'user'` по
-  `operations.user_id`, `aggregation=D|M|Y`). `user_role` в существующих строках проставлена
-  идемпотентной миграцией `db/migrations/2026-09-11-request-logs-user-role.sql`
-  через `user_id → users.role` (у неавторизованных и удалённых авторов роль
-  остаётся NULL — восстановить по почте нельзя, она в логах не хранилась).
+- **Логирование запросов:** `requestLoggingMiddleware` → `public.request_logs`.
+  Не сохраняйте тела запросов/ответов, query, User-Agent и IP; сегменты идентификаторов
+  в пути маскируются. GET-запросы админки не логируются, её мутации сохраняются для аудита.
+  При изменении логирования или метрик читайте [справочник](docs/request-logging.md).
 - **Formatting:** single quotes, semicolons, 2-space indent, trailing commas, 100-char width
 - **Точка входа:** `src/index.ts` загружает dotenv и стартует сервер
 - **Конфигурация:** `.env` файл (не `.env.example`); ключи: `PORT`, `CORS_ORIGIN`,
@@ -187,79 +148,19 @@ src/
   (шифрование ip/ua в consent_log; без него регистрация/принятие согласия = 500;
   в прод-`.env` засевается job'ой `deploy-api` из переменной GitLab)
 
-## Легальные документы и согласия (152-ФЗ + 99-З РБ)
+## Легальные документы и согласия
 
-Реализация требований `PersonalData.md` (миграция
-`db/migrations/2026-09-12-consent-legal-documents.sql`).
-
-- **`legal_documents`** — версионируемые тексты (Markdown в `content`,
-  `content_hash` = sha256; HTML не хранится и не рендерится на сервере —
-  клиент использует react-markdown). Ровно одна `is_current` на тип
-  (частичный unique-индекс). Строка опубликованной версии не редактируется;
-  косметическая правка — только `legal:publish --cosmetic` с фиксацией факта
-  в коммите. `_legal` — только публичное чтение:
-  `GET /legal/:documentType/current` и `/:documentType/:version`
-  (без авторизации; ответ с сильным ETag=hash; при расхождении хэша с
-  содержимым — console.warn «ИНЦИДЕНТ ЦЕЛОСТНОСТИ», текст всё равно отдаётся).
-- **Типы документов** — `KNOWN_DOCUMENT_TYPES` (`_legal/types.ts`): два
-  документа — `privacy_policy` (гейтит consent-gate: её принятие считается
-  согласием на обработку ПДн, константа `_consent/GATING_DOCUMENT_TYPE`) и
-  `terms_of_use` (информационный — публикации НЕ инвалидируют согласия).
-  Ссылки/заголовки в
-  UI и slug'ы — в реестре клиента `client/src/shared/legal/documents.ts`
-  (зеркало); новый тип требует правки обоих реестров, иначе CLI его
-  отклоняет (`--allow-unknown` — только для служебных вне UI).
-- **Публикация** — только CLI `src/scripts/publish-legal-document.ts`. Исходник
-  текста хранится в git: `server/docs/legal/<document_type>.md` (PersonalData.md
-  п.2 пересмотрен 2026-09-12: файл — вход CLI, канон опубликованного текста —
-  БД). В проде каталог примонтирован в api-контейнер (`./docs/legal:/docs:ro`,
-  см. docker-compose.yml), публикация после deploy-api одной командой
-  (`--all` берёт все файлы каталога, `--docs-dir`/`LEGAL_DOCS_DIR` меняет его,
-  `--dry-run` и префлайт raw-HTML/плейсхолдеров — до любой записи):
-  `docker compose exec api node dist/scripts/publish-legal-document.js --all --docs-dir /docs --dry-run`,
-  затем без `--dry-run` (dev: `npm run legal:publish -- --all`).
-  merge в develop ≠ опубликовано; идентичный текущему текст скрипт отказывается
-  публиковать (защита от холостой инвалидации согласий). Версия = дата по МСК,
-  конфликт дня → суффикс -2. Косметическая правка — `--cosmetic` с фиксацией
-   факта в коммите. Порядок деплоя новой фичи: миграция → deploy api
-   (засевает `CONSENT_ENC_KEY` в `.env` из переменной GitLab) → публикация v1 →
-   deploy web. Первый пуск
-  в проде: `terms_of_use` можно раньше, `privacy_policy` (гейтящая) —
-  последним, web со ссылками деплоится уже после публикации.
-- **`consent_log`** — append-only журнал (только INSERT с сервера;
-  `created_at` — DEFAULT now()). `form_id`: registration | consent_gate |
-  account_settings | admin; `action`: granted | revoked | erased. Композитный
-  FK на (document_type, version) — версия обязана существовать. `user_id` —
-  FK БЕЗ каскада: журнал обязан пережить пользователя (>= 3 года), поэтому
-  physical delete аккаунта на уровне БД невозможен; вместо него — обезличивание
-  (`consentService.revokeAndErase`: revoked → удаление финансовых данных +
-  сессий, логин 'deleted-<uuid>' + недостижимый пароль → erased). Тот же
-  сценарий обслуживает `DELETE /users/me` (самоудаление) и
-  `DELETE /admin/users/:userId` (админ; в списках/статистике админки строки
-  'deleted-<uuid>' скрыты константой `NOT_ANONYMIZED_SQL`).
-- **ip/ua в журнале шифрованы** pgcrypto (`pgp_sym_encrypt`, armor), ключ —
-  env `CONSENT_ENC_KEY` (без него запись согласия = 500). Это сознательное
-  исключение из политики «IP не храним»: здесь адрес — доказательство
-  юридически значимого события. Расшифровка только руками (SQL-запрос в
-  шапке миграции). `request_logs` и `refresh_tokens` по-прежнему без IP.
-- **Consent-gate (п.5):** логика `check_consent()` — в `_consent/service.ts`
-  (нет записи / revoked / несовпадение с текущей версией → needsConsent;
-  неопубликованный документ гейт НЕ включает). Эндпоинты: `GET
-  /consent/status`, `POST /consent/grant` (версию сервер берёт сам),
-  `POST /consent/revoke`. `requireConsent` висит на бизнес-модулях
-  (operations/reports/categories/accumulations/goals/admin) и отдаёт 403 с
-  `error.code='CONSENT_REQUIRED'` (поле кода добавлено в envelope
-  errorMiddleware — обратно совместимо); /auth, /users и /consent доступны и
-  в состоянии NEEDS_CONSENT (путь к принятию и удалению аккаунта). Состояние
-  кэшируется в памяти процесса на 60 c (по образцу touchLastActive);
-  мутации согласия сбрасывают кэш, публикация из CLI — по истечении TTL.
-  `ConsentStateDto` кроме `currentVersion` отдаёт `grantedVersion` — версию
-  последней `granted`-записи журнала (профиль показывает её ссылкой на
-  исторический текст; после отзыва latest — revoked/erased, но grantedVersion
-  остаётся).
-- **Регистрация (п.4):** тело `POST /auth/register` обязано содержать
-  `consent: true` (400 + code CONSENT_REQUIRED иначе); строка users и
-  первая запись журнала пишутся в одной транзакции (`withTransaction`).
+- Канон опубликованных текстов — БД; исходники — `docs/legal/`. Публикация только через
+  `legal:publish`, сначала `--dry-run`; опубликованные версии напрямую не редактируются.
+  Для косметических правок — `--cosmetic` с фиксацией факта в коммите.
+- `privacy_policy` гейтит доступ, `terms_of_use` — информационный. Реестры типов сервера
+  (`KNOWN_DOCUMENT_TYPES`) и клиента (`client/src/shared/legal/documents.ts`) должны совпадать.
+- `consent_log` — append-only; удаление аккаунта — обезличивание с сохранением журнала.
+  IP/UA шифруются ключом `CONSENT_ENC_KEY`; существующий ключ не перезаписывайте.
+- Регистрация и запись согласия выполняются в одной транзакции. `requireConsent`
+  защищает бизнес-модули; /auth, /users и /consent доступны для принятия и удаления аккаунта.
+- При изменении согласий, регистрации, удаления аккаунта или публикации документов
+  читайте [механизм и порядок деплоя](docs/consent-and-legal.md).
 
 ## Безопасность
 

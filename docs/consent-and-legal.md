@@ -1,0 +1,75 @@
+# Легальные документы и согласия (152-ФЗ + 99-З РБ)
+
+Пути в этом документе указаны относительно server/, если явно не указан другой корень.
+
+Реализация требований `PersonalData.md` (миграция
+`db/migrations/2026-09-12-consent-legal-documents.sql`).
+
+- **`legal_documents`** — версионируемые тексты (Markdown в `content`,
+  `content_hash` = sha256; HTML не хранится и не рендерится на сервере —
+  клиент использует react-markdown). Ровно одна `is_current` на тип
+  (частичный unique-индекс). Строка опубликованной версии не редактируется;
+  косметическая правка — только `legal:publish --cosmetic` с фиксацией факта
+  в коммите. `_legal` — только публичное чтение:
+  `GET /legal/:documentType/current` и `/:documentType/:version`
+  (без авторизации; ответ с сильным ETag=hash; при расхождении хэша с
+  содержимым — console.warn «ИНЦИДЕНТ ЦЕЛОСТНОСТИ», текст всё равно отдаётся).
+- **Типы документов** — `KNOWN_DOCUMENT_TYPES` (`_legal/types.ts`): два
+  документа — `privacy_policy` (гейтит consent-gate: её принятие считается
+  согласием на обработку ПДн, константа `_consent/GATING_DOCUMENT_TYPE`) и
+  `terms_of_use` (информационный — публикации НЕ инвалидируют согласия).
+  Ссылки/заголовки в
+  UI и slug'ы — в реестре клиента `client/src/shared/legal/documents.ts`
+  (зеркало); новый тип требует правки обоих реестров, иначе CLI его
+  отклоняет (`--allow-unknown` — только для служебных вне UI).
+- **Публикация** — только CLI `src/scripts/publish-legal-document.ts`. Исходник
+  текста хранится в git: `server/docs/legal/<document_type>.md` (PersonalData.md
+  п.2 пересмотрен 2026-09-12: файл — вход CLI, канон опубликованного текста —
+  БД). В проде каталог примонтирован в api-контейнер (`./docs/legal:/docs:ro`,
+  см. docker-compose.yml), публикация после deploy-api одной командой
+  (`--all` берёт все файлы каталога, `--docs-dir`/`LEGAL_DOCS_DIR` меняет его,
+  `--dry-run` и префлайт raw-HTML/плейсхолдеров — до любой записи):
+  `docker compose exec api node dist/scripts/publish-legal-document.js --all --docs-dir /docs --dry-run`,
+  затем без `--dry-run` (dev: `npm run legal:publish -- --all`).
+  merge в develop ≠ опубликовано; идентичный текущему текст скрипт отказывается
+  публиковать (защита от холостой инвалидации согласий). Версия = дата по МСК,
+  конфликт дня → суффикс -2. Косметическая правка — `--cosmetic` с фиксацией
+   факта в коммите. Порядок деплоя новой фичи: миграция → deploy api
+   (засевает `CONSENT_ENC_KEY` в `.env` из переменной GitLab) → публикация v1 →
+   deploy web. Первый пуск
+  в проде: `terms_of_use` можно раньше, `privacy_policy` (гейтящая) —
+  последним, web со ссылками деплоится уже после публикации.
+- **`consent_log`** — append-only журнал (только INSERT с сервера;
+  `created_at` — DEFAULT now()). `form_id`: registration | consent_gate |
+  account_settings | admin; `action`: granted | revoked | erased. Композитный
+  FK на (document_type, version) — версия обязана существовать. `user_id` —
+  FK БЕЗ каскада: журнал обязан пережить пользователя (>= 3 года), поэтому
+  physical delete аккаунта на уровне БД невозможен; вместо него — обезличивание
+  (`consentService.revokeAndErase`: revoked → удаление финансовых данных +
+  сессий, логин 'deleted-<uuid>' + недостижимый пароль → erased). Тот же
+  сценарий обслуживает `DELETE /users/me` (самоудаление) и
+  `DELETE /admin/users/:userId` (админ; в списках/статистике админки строки
+  'deleted-<uuid>' скрыты константой `NOT_ANONYMIZED_SQL`).
+- **ip/ua в журнале шифрованы** pgcrypto (`pgp_sym_encrypt`, armor), ключ —
+  env `CONSENT_ENC_KEY` (без него запись согласия = 500). Это сознательное
+  исключение из политики «IP не храним»: здесь адрес — доказательство
+  юридически значимого события. Расшифровка только руками (SQL-запрос в
+  шапке миграции). `request_logs` и `refresh_tokens` по-прежнему без IP.
+- **Consent-gate (п.5):** логика `check_consent()` — в `_consent/service.ts`
+  (нет записи / revoked / несовпадение с текущей версией → needsConsent;
+  неопубликованный документ гейт НЕ включает). Эндпоинты: `GET
+  /consent/status`, `POST /consent/grant` (версию сервер берёт сам),
+  `POST /consent/revoke`. `requireConsent` висит на бизнес-модулях
+  (operations/reports/categories/accumulations/goals/admin) и отдаёт 403 с
+  `error.code='CONSENT_REQUIRED'` (поле кода добавлено в envelope
+  errorMiddleware — обратно совместимо); /auth, /users и /consent доступны и
+  в состоянии NEEDS_CONSENT (путь к принятию и удалению аккаунта). Состояние
+  кэшируется в памяти процесса на 60 c (по образцу touchLastActive);
+  мутации согласия сбрасывают кэш, публикация из CLI — по истечении TTL.
+  `ConsentStateDto` кроме `currentVersion` отдаёт `grantedVersion` — версию
+  последней `granted`-записи журнала (профиль показывает её ссылкой на
+  исторический текст; после отзыва latest — revoked/erased, но grantedVersion
+  остаётся).
+- **Регистрация (п.4):** тело `POST /auth/register` обязано содержать
+  `consent: true` (400 + code CONSENT_REQUIRED иначе); строка users и
+  первая запись журнала пишутся в одной транзакции (`withTransaction`).

@@ -1,259 +1,300 @@
--- Схема PostgreSQL для сервера my-budget.
--- Рассчитана на пустую базу. Выполнить целиком: psql -f schema.sql
+-- Схема целевой БД my-budget server: PostgreSQL 16 (образ postgres:16 в docker-compose).
+-- Файл приводит пустую БД к структуре, которая к этапу 1 перехода на аккаунты
+-- сложилась в рабочей БД; на живой базе целиком не запускать — только идемпотентные
+-- файлы из db/migrations.
 --
--- Особенности схемы:
---   * аккаунт и профиль — одна таблица users (роль, стартовый баланс,
---     валюта, онбординг, отметка активности живут в ней же);
---   * доступ контролирует серверный слой (Express), политик уровня БД нет;
---   * внешние ключи с каскадным удалением; исключение — consent_log:
---     FK без каскада, журнал согласий переживает владельца (хранение >= 3 лет);
---   * перечисления ограничены CHECK-констрейнтами;
---   * operations.date — тип date;
---   * уникальность code отчёта в рамках пользователя enforced индексом.
-
--- ── Расширения ───────────────────────────────────────────────────────────────
-create extension if not exists pgcrypto;  -- gen_random_uuid()
-create extension if not exists citext;    -- регистронезависимый логин
-
--- ── Пользователи: аккаунт + профиль (JWT-авторизация на сервере) ─────────────
-create table public.users (
-  id uuid primary key default gen_random_uuid(),
-  login citext not null unique,
-  password_hash text not null,
-  role text not null default 'user' check (role in ('user', 'admin')),
-  start_balance numeric not null default 0,
-  currency text,
-  onboarded boolean not null default false,
-  last_active_at timestamptz,  -- отмечает authMiddleware при авторизованных запросах
-  failed_login_attempts integer not null default 0,  -- неудачные входы подряд (см. _auth/service.ts)
-  locked_until timestamptz,    -- до этого момента вход в аккаунт запрещён (временный блок)
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- Этап 1: старые накопления и savings/savings_out заменяются аккаунтами и переводами.
+--   * users.start_balance удалён, деньги пользователя хранятся в accounts.initial_balance;
+--   * накопления превращены в accounts, savings/savings_out — в operations.type = 'transfer';
+--   * удалены таблицы accumulations и goals, а также type='savings' у categories.
+--
+-- Типы категорий: 'income' (доход) и 'expense' (расход) — для обычных операций,
+-- 'daily' — для ежедневных операций (учитываются в расходе дня, но не в структуре отчёта).
+-- Накопительные категории удалены: для целей накопления теперь используются accounts.
+-- CHECK: CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text]))
+CREATE TABLE IF NOT EXISTS public.categories (
+    id uuid default gen_random_uuid() not null primary key,
+    name text not null,
+    icon text,
+    color text,
+    sort_order integer default 0 not null,
+    created_at timestamp with time zone default now() not null,
+    user_id uuid not null references public.users(id) on delete cascade,
+    parent_id uuid references public.categories(id) on delete cascade,
+    type text default 'expense'::text not null,
+    archived boolean default false not null,
+    CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text]))
 );
 
--- ── Refresh-токены (одна строка = активная сессия/устройство) ───────────────
-create table public.refresh_tokens (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  token_hash text not null unique,
-  user_agent text,
-  expires_at timestamptz not null,
-  revoked_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- Аккаунты пользователя: основной счёт, накопления и будущие отдельные кошельки.
+-- Ровно один основной счёт на пользователя обеспечивается частичным уникальным индексом;
+-- users не ссылается на accounts, чтобы избежать циклической зависимости.
+CREATE TABLE IF NOT EXISTS public.accounts (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    name text not null,
+    initial_balance numeric default 0 not null,
+    is_closed boolean default false not null,
+    is_primary boolean default false not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
 );
 
--- ── Отчёты (периоды бюджета) ────────────────────────────────────────────────
-create table public.reports (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  name text not null,
-  code text not null default '',
-  has_daily_expenses boolean not null default false,
-  daily_budget numeric,
-  period_start date,
-  period_end date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+CREATE INDEX IF NOT EXISTS accounts_user_id_idx ON public.accounts USING btree (user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_key ON public.accounts USING btree (user_id) WHERE is_primary;
+
+-- Пользователи. Стартовый баланс больше не хранится здесь: он вынесен в accounts.initial_balance.
+CREATE TABLE IF NOT EXISTS public.users (
+    id uuid default gen_random_uuid() not null primary key,
+    created_at timestamp with time zone default now() not null,
+    login text not null unique,
+    email text,
+    password text not null,
+    role text default 'user'::text not null,
+    avatar_url text,
+    created_by uuid references public.users(id) on delete set null,
+    invited_by uuid references public.users(id) on delete set null,
+    last_active_at timestamp with time zone default now() not null,
+    registration_date timestamp with time zone default now() not null,
+    failed_login_attempts integer default 0 not null,
+    locked_until timestamp with time zone,
+    CONSTRAINT users_role_check CHECK (role = ANY (ARRAY['user'::text, 'admin'::text]))
 );
 
--- ── Категории операций/накоплений ───────────────────────────────────────────
-create table public.categories (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  type text not null check (type in ('income', 'expense', 'savings')),
-  name text not null,
-  color text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- Активные сессии (refresh-токены).
+CREATE TABLE IF NOT EXISTS public.refresh_tokens (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    token_hash text not null unique,
+    expires_at timestamp with time zone not null,
+    created_at timestamp with time zone default now() not null,
+    user_agent text
+);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON public.refresh_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON public.refresh_tokens(user_id);
+
+-- Расширяемые настройки аккаунта (схема настроек описана на клиенте).
+CREATE TABLE IF NOT EXISTS public.user_settings (
+    user_id uuid primary key references public.users(id) on delete cascade,
+    settings jsonb not null default '{}'::jsonb,
+    updated_at timestamp with time zone not null default now()
 );
 
--- ── Операции ────────────────────────────────────────────────────────────────
-create table public.operations (
-  id uuid primary key default gen_random_uuid(),
-  report_id uuid not null references public.reports (id) on delete cascade,
-  user_id uuid not null references public.users (id) on delete cascade,
-  type text not null check (type in ('income', 'expense', 'savings', 'savings_out', 'daily')),
-  amount numeric not null,
-  category_id uuid references public.categories (id) on delete set null,
-  description text,
-  date date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- Заметки администратора о пользователе (одна на автора).
+CREATE TABLE IF NOT EXISTS public.admin_notes (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    author_id uuid references public.users(id) on delete set null,
+    text text not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
+);
+CREATE INDEX IF NOT EXISTS idx_admin_notes_user_id ON public.admin_notes(user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_notes_author_id ON public.admin_notes(author_id);
+
+-- Операции: тип 'income' (доход), 'expense' (расход), 'daily' (ежедневная)
+-- и 'transfer' (перевод между аккаунтами: заполняются from_account_id/to_account_id).
+CREATE TABLE IF NOT EXISTS public.operations (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid references public.users(id) on delete cascade,
+    date date not null,
+    time time without time zone,
+    type text not null,
+    account_id uuid references public.accounts(id) on delete set null,
+    from_account_id uuid references public.accounts(id) on delete set null,
+    to_account_id uuid references public.accounts(id) on delete set null,
+    amount numeric not null,
+    category_id uuid references public.categories(id) on delete set null,
+    description text,
+    report_id uuid references public.reports(id) on delete set null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null,
+    CONSTRAINT operations_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text, 'transfer'::text]))
 );
 
--- ── Накопления ──────────────────────────────────────────────────────────────
-create table public.accumulations (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  category_id uuid references public.categories (id) on delete set null,
-  description text not null,
-  amount numeric not null default 0,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+-- Лимиты расходов по категориям для отчётов.
+CREATE TABLE IF NOT EXISTS public.category_limits (
+    id uuid default gen_random_uuid() not null primary key,
+    report_id uuid not null references public.reports(id) on delete cascade,
+    user_id uuid not null references public.users(id) on delete cascade,
+    category_id uuid not null references public.categories(id) on delete cascade,
+    amount numeric not null,
+    period text not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null,
+    CONSTRAINT category_limits_period_check CHECK (period = ANY (ARRAY['week'::text, 'month'::text, 'quarter'::text, 'year'::text]))
 );
 
--- ── Цели накоплений (одна на savings-категорию) ────────────────────────────
-create table public.goals (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  category_id uuid not null references public.categories (id) on delete cascade,
-  amount numeric not null check (amount > 0),
-  target_date date,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (user_id, category_id)
+-- Группы категорий для пользовательских отчётов.
+CREATE TABLE IF NOT EXISTS public.category_group_assignments (
+    id uuid default gen_random_uuid() not null primary key,
+    report_id uuid not null references public.reports(id) on delete cascade,
+    user_id uuid not null references public.users(id) on delete cascade,
+    category_id uuid not null references public.categories(id) on delete cascade,
+    group_name text not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
 );
 
--- ── Лимиты категорий в отчёте ───────────────────────────────────────────────
-create table public.category_limits (
-  id uuid primary key default gen_random_uuid(),
-  report_id uuid not null references public.reports (id) on delete cascade,
-  category_id uuid not null references public.categories (id) on delete cascade,
-  user_id uuid not null references public.users (id) on delete cascade,
-  amount numeric not null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (report_id, category_id)
+-- Пользовательские отчёты: конфигурация хранится в JSONB (см. client/src/features/reports).
+CREATE TABLE IF NOT EXISTS public.reports (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    name text not null,
+    type text not null,
+    data jsonb not null,
+    time_range text,
+    start_date date,
+    end_date date,
+    report_period text not null default 'none'::text,
+    custom_start_day integer,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null,
+    CONSTRAINT reports_type_check CHECK (type = ANY (ARRAY['category'::text, 'custom'::text]))
 );
 
--- ── Индексы (по запросам из клиентских RPC + FK-колонки) ────────────────────
-create index accumulations_category_id_idx on public.accumulations (category_id);
-create index accumulations_user_id_created_at_idx on public.accumulations (user_id, created_at desc);
-create index categories_user_id_type_idx on public.categories (user_id, type);
-create index operations_category_id_idx on public.operations (category_id);
-create index operations_report_type_created_at_idx on public.operations (report_id, type, created_at desc);
-create index operations_user_id_idx on public.operations (user_id);
-create index reports_user_id_created_at_idx on public.reports (user_id, created_at desc);
-create index goals_category_id_idx on public.goals (category_id);
-create index category_limits_category_id_idx on public.category_limits (category_id);
-create index refresh_tokens_user_id_idx on public.refresh_tokens (user_id);
-create index refresh_tokens_expires_at_idx on public.refresh_tokens (expires_at);
--- код периода уникален в рамках пользователя (пустой код не учитывается)
-create unique index reports_user_id_code_key on public.reports (user_id, code) where code <> '';
-
--- ── Юридические документы (согласие на обработку ПДн и т.п.) ────────────────
--- Append-only реестр версий: строка опубликованной версии никогда не
--- редактируется (кроме осознанной косметической правки через CLI --cosmetic),
--- любое изменение текста — новая строка с новым version. content — Markdown,
--- HTML рендерит клиент (react-markdown). content_hash — sha256 от content;
--- несовпадение при выдаче = инцидент целостности (лог в _legal/service.ts).
--- Публикация — только src/scripts/publish-legal-document.ts (см. AGENTS.md).
-create table public.legal_documents (
-  id uuid primary key default gen_random_uuid(),
-  document_type text not null,
-  version text not null,                        -- '2026-09-12' (дата публикации)
-  published_at timestamptz not null default now(),
-  is_current boolean not null default false,
-  content text not null,                        -- Markdown
-  content_hash varchar(64) not null,            -- hex sha256(content)
-  unique (document_type, version)
+-- Настройки групп в отчётах (исключение/прочее).
+CREATE TABLE IF NOT EXISTS public.report_group_overrides (
+    id uuid default gen_random_uuid() not null primary key,
+    report_id uuid not null references public.reports(id) on delete cascade,
+    user_id uuid not null references public.users(id) on delete cascade,
+    group_name text not null,
+    category_ids text not null,
+    is_excluded boolean default false not null,
+    is_other boolean default false not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
 );
 
--- Ровно одна «текущая» версия на document_type — на уровне БД, а не только
--- в транзакции публикации.
-create unique index legal_documents_current_key
-  on public.legal_documents (document_type)
-  where is_current;
-
--- ── Журнал согласий (append-only юридически значимых событий) ────────────────
--- Только вставка: UPDATE/DELETE строк не бывает; отзыв — новая строка
--- action='revoked', удаление (обезличивание) данных — строка action='erased'.
--- created_at проставляет сервер (DEFAULT now()), от клиента не принимается.
--- ip_address/user_agent — ПЕРСОНАЛЬНЫЕ ДАННЫЕ, лежат зашифрованными
--- pgp_sym_encrypt(armor): это сознательный пересмотр политики «IP не храним»
--- (см. 2026-09-12-drop-ip-columns.sql) ради юридической значимости согласия.
--- Ключ шифрования — env CONSENT_ENC_KEY; расшифровка только руками в psql
--- (dearmor + pgp_sym_decrypt), приложение IP не читает.
--- Строки journal-а живут не менее 3 лет после прекращения обработки, поэтому
--- FK на users(id) БЕЗ каскада: physical delete пользователя невозможен
--- (вместо него — обезличивание аккаунта, строка users остаётся).
-create table public.consent_log (
-  id bigint generated always as identity primary key,
-  user_id uuid not null references public.users (id),
-  ip_address text not null,                     -- pgp armored
-  user_agent text,                              -- pgp armored или null
-  document_type text not null,
-  document_version text not null,
-  form_id text not null check (form_id in ('registration', 'consent_gate', 'account_settings', 'admin')),
-  action text not null check (action in ('granted', 'revoked', 'erased')),
-  created_at timestamptz not null default now(),
-  foreign key (document_type, document_version)
-    references public.legal_documents (document_type, version)
+-- Пользовательский старт расчётного периода («месяц с 5-го числа»).
+-- Один раз на весь отчёт (report_id = null) или на конкретную группу.
+CREATE TABLE IF NOT EXISTS public.report_period_settings (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    report_id uuid references public.reports(id) on delete cascade,
+    group_name text,
+    period_start jsonb not null,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null
 );
 
-create index idx_consent_log_user
-  on public.consent_log (user_id, document_type, created_at desc);
-
--- ── Логи HTTP-запросов (просмотр — админка, метрики считаются SQL-ем) ──────
--- Пишет middleware requestLoggingMiddleware: метод, путь, статус, длительность,
--- автор — и текст ошибки для ответов с статусом >= 400. Параметры запроса
--- (query), тела запросов/ответов и User-Agent не хранятся: это основной объём
--- таблицы и светлые данные в БД. Устаревшие строки чистит сама middleware
--- (LOG_RETENTION_DAYS).
-create table public.request_logs (
-  id bigint generated always as identity primary key,
-  created_at timestamptz not null default now(),
-  method text not null,
-  path text not null,
-  status smallint not null,
-  duration_ms integer not null,
-  -- Только для неудачных ответов: сообщение из envelope { error: { message } }.
-  error text,
-  user_id uuid references public.users (id) on delete set null,
-  -- Роль автора из JWT на момент запроса ('user' | 'admin'); null — без авторизации
-  -- или пользователь удалён (on delete set null обнуляет user_id, роль остаётся).
-  user_role text check (user_role in ('user', 'admin')),
-  -- Отделяет «запрос без авторизации» от «user_id обнулён каскадом»:
-  -- пишется в момент запроса (requestLoggingMiddleware), не меняется ретроспективно.
-  is_authenticated boolean not null default false
+-- Лог входящих запросов и ошибок (пишет requestLoggingMiddleware, смотрит админка).
+-- Писали без IP и User-Agent: они занимали основной объём таблицы и не использовались
+-- в фильтрах; ошибки ищутся по тексту, авторизованность — по is_authenticated.
+-- UUID- и числовые сегменты пути пишутся как :id: иначе топы группировали бы каждый id
+-- отдельной строкой.
+CREATE TABLE IF NOT EXISTS public.request_logs (
+    id bigint generated always as identity primary key,
+    created_at timestamp with time zone default now() not null,
+    method text not null,
+    path text not null,
+    status_code integer not null,
+    duration_ms integer not null,
+    error_text text,
+    user_id uuid references public.users(id) on delete set null,
+    is_authenticated boolean not null default false,
+    user_role text
 );
+-- Мягкое условие для старых строк (колонку добавили миграцией, заполняем выборочно).
+ALTER TABLE public.request_logs DROP CONSTRAINT IF EXISTS request_logs_user_role_check;
+ALTER TABLE public.request_logs ADD CONSTRAINT request_logs_user_role_check
+  CHECK (user_role is null or user_role in ('user', 'admin'));
 
-create index request_logs_created_at_idx on public.request_logs (created_at desc);
-create index request_logs_status_created_at_idx on public.request_logs (status, created_at desc);
--- Фильтр «Логи» в админке по пользователю (GET /admin/logs?userId=)
-create index request_logs_user_id_idx on public.request_logs (user_id, created_at desc);
--- Фильтр/группировка по роли автора (график логов audience='users')
-create index request_logs_user_role_created_at_idx on public.request_logs (user_role, created_at desc);
+CREATE INDEX IF NOT EXISTS idx_categories_user_id ON public.categories USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_categories_created_at ON public.categories USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_categories_type ON public.categories USING btree (type);
 
--- ── Автообновление updated_at ───────────────────────────────────────────────
--- updated_at двигается только если изменилась хотя бы одна колонка, кроме
--- самого updated_at и last_active_at: отметка активности не должна менять
--- дату изменения профиля.
-create function public.set_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  if to_jsonb(new) - 'updated_at' - 'last_active_at'
-     is distinct from
-     to_jsonb(old) - 'updated_at' - 'last_active_at' then
-    new.updated_at = now();
-  end if;
-  return new;
-end;
-$$;
+CREATE INDEX IF NOT EXISTS idx_operations_created_at ON public.operations USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_operations_user_id ON public.operations USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_operations_type ON public.operations USING btree (type);
+CREATE INDEX IF NOT EXISTS idx_operations_date ON public.operations USING btree (date);
+CREATE INDEX IF NOT EXISTS idx_operations_category_id ON public.operations USING btree (category_id);
+CREATE INDEX IF NOT EXISTS idx_operations_report_id ON public.operations USING btree (report_id);
+CREATE INDEX IF NOT EXISTS idx_operations_user_date ON public.operations USING btree (user_id, date);
+CREATE INDEX IF NOT EXISTS idx_operations_account_id ON public.operations USING btree (account_id);
+CREATE INDEX IF NOT EXISTS idx_operations_from_account_id ON public.operations USING btree (from_account_id);
+CREATE INDEX IF NOT EXISTS idx_operations_to_account_id ON public.operations USING btree (to_account_id);
 
-create trigger trg_users_updated_at before update on public.users
-  for each row execute function public.set_updated_at();
-create trigger trg_refresh_tokens_updated_at before update on public.refresh_tokens
-  for each row execute function public.set_updated_at();
-create trigger trg_reports_updated_at before update on public.reports
-  for each row execute function public.set_updated_at();
-create trigger trg_categories_updated_at before update on public.categories
-  for each row execute function public.set_updated_at();
-create trigger trg_operations_updated_at before update on public.operations
-  for each row execute function public.set_updated_at();
-create trigger trg_accumulations_updated_at before update on public.accumulations
-  for each row execute function public.set_updated_at();
-create trigger trg_goals_updated_at before update on public.goals
-  for each row execute function public.set_updated_at();
-create trigger trg_category_limits_updated_at before update on public.category_limits
-  for each row execute function public.set_updated_at();
+CREATE INDEX IF NOT EXISTS idx_requests_user_id ON public.reports USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_requests_type ON public.reports USING btree (type);
 
--- ── Отметка активности ──────────────────────────────────────────────────────
--- Ставится приложением, а не схемой: middleware src/middlewares/authMiddleware.ts
--- обновляет users.last_active_at на каждом запросе с валидным access-токеном,
--- не чаще одного раза в 15 минут.
--- Триггера на вставку операций здесь нет сознательно: он переставлял
--- last_active_at на now() при любой пакетной загрузке исторических операций.
+CREATE INDEX IF NOT EXISTS idx_category_limits_report_id ON public.category_limits USING btree (report_id);
+CREATE INDEX IF NOT EXISTS idx_category_limits_user_id ON public.category_limits USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_category_limits_category_id ON public.category_limits USING btree (category_id);
+
+CREATE INDEX IF NOT EXISTS idx_report_group_overrides_report_id ON public.report_group_overrides USING btree (report_id);
+CREATE INDEX IF NOT EXISTS idx_report_group_overrides_user_id ON public.report_group_overrides USING btree (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_category_group_assignments_report_id ON public.category_group_assignments USING btree (report_id);
+CREATE INDEX IF NOT EXISTS idx_category_group_assignments_user_id ON public.category_group_assignments USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_category_group_assignments_category_id ON public.category_group_assignments USING btree (category_id);
+
+CREATE INDEX IF NOT EXISTS idx_report_period_settings_user_id ON public.report_period_settings USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_report_period_settings_report_id ON public.report_period_settings USING btree (report_id);
+
+CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON public.request_logs USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_path_status ON public.request_logs USING btree (path, status_code);
+
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.seed_default_categories_for_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  INSERT INTO public.categories (user_id, name, type, icon, color)
+  VALUES
+    (NEW.id, 'Зарплата', 'income', '💼', '#4CAF50'),
+    (NEW.id, 'Фриланс', 'income', '💻', '#8BC34A'),
+    (NEW.id, 'Подарки', 'income', '🎁', '#FF9800'),
+    (NEW.id, 'Продукты', 'expense', '🛒', '#2196F3'),
+    (NEW.id, 'Транспорт', 'expense', '🚌', '#9C27B0'),
+    (NEW.id, 'Развлечения', 'expense', '🎮', '#E91E63'),
+    (NEW.id, 'Кафе и рестораны', 'expense', '🍽️', '#FF5722'),
+    (NEW.id, 'Жильё', 'expense', '🏠', '#795548'),
+    (NEW.id, 'Здоровье', 'expense', '💊', '#00BCD4'),
+    (NEW.id, 'Кофе', 'daily', '☕', '#F44336'),
+    (NEW.id, 'Обед', 'daily', '🍜', '#FFC107'),
+    (NEW.id, 'Транспорт (ежедневный)', 'daily', '🚇', '#607D8B'),
+    (NEW.id, 'Продукты (ежедневные)', 'daily', '🥖', '#3F51B5')
+  ON CONFLICT DO NOTHING;
+
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_categories_updated_at ON public.categories;
+CREATE TRIGGER trg_categories_updated_at BEFORE UPDATE ON public.categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_operations_updated_at ON public.operations;
+CREATE TRIGGER trg_operations_updated_at BEFORE UPDATE ON public.operations FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_accounts_updated_at ON public.accounts;
+CREATE TRIGGER trg_accounts_updated_at BEFORE UPDATE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_category_limits_updated_at ON public.category_limits;
+CREATE TRIGGER trg_category_limits_updated_at BEFORE UPDATE ON public.category_limits FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_report_group_overrides_updated_at ON public.report_group_overrides;
+CREATE TRIGGER trg_report_group_overrides_updated_at BEFORE UPDATE ON public.report_group_overrides FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_category_group_assignments_updated_at ON public.category_group_assignments;
+CREATE TRIGGER trg_category_group_assignments_updated_at BEFORE UPDATE ON public.category_group_assignments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_report_period_settings_updated_at ON public.report_period_settings;
+CREATE TRIGGER trg_report_period_settings_updated_at BEFORE UPDATE ON public.report_period_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_seed_default_categories ON public.users;
+CREATE TRIGGER trg_seed_default_categories AFTER INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION public.seed_default_categories_for_user();
+
+-- Row Level Security не включаем: доступ к данным контролируется сервером через
+-- user_id в каждом запросе.
