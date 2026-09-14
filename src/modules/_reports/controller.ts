@@ -67,7 +67,7 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/capital-dynamics → 200: [{ month, delta }]. */
+  /** GET /reports/capital-dynamics → 200: [{ month, delta }] по периодам. */
   async getCapitalDynamics(req: Request, res: Response, next: NextFunction) {
     try {
       const months = await reportsService.getCapitalDynamics(req.user!.id);

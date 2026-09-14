@@ -15,8 +15,8 @@ reportsRouter.use(authenticate, requireConsent);
 // (GrowthDynamicsCard, GoalsSection).
 reportsRouter.get('/', reportsController.list);
 
-// GET /reports/capital-dynamics (хук useCapitalDynamics): помесячная дельта
-// капитала для графика на главной. Обязан стоять до /:id, иначе Express
+// GET /reports/capital-dynamics (хук useCapitalDynamics): дельта капитала по
+// периодам-отчётам для графика «Рост капитала». Обязан стоять до /:id, иначе Express
 // примет 'capital-dynamics' за id отчёта.
 reportsRouter.get('/capital-dynamics', reportsController.getCapitalDynamics);
 

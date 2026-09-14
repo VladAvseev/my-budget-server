@@ -73,7 +73,7 @@ export interface ReportSummary {
   daily: number;
 }
 
-/** Помесячная дельта капитала для GET /reports/capital-dynamics. */
+/** Дельта капитала за период (отчёт) для GET /reports/capital-dynamics. */
 export interface CapitalMonthDto {
   month: string;
   delta: number;

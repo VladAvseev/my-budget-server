@@ -169,7 +169,7 @@ export class ReportsService {
     return reportsRepository.getSummary(reportId);
   }
 
-  /** GET /reports/capital-dynamics: помесячная дельта капитала пользователя. */
+  /** GET /reports/capital-dynamics: дельта капитала по периодам пользователя. */
   async getCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     return reportsRepository.listCapitalDynamics(userId);
   }

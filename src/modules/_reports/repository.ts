@@ -204,35 +204,25 @@ export class ReportsRepository {
   }
 
   /**
-   * Дельта по датам операций всех счетов, включая операции без отчёта.
-   * Изменение или удаление отчёта не переносит денежный поток в другой месяц.
-   * Переводы не меняют капитал. Текущий капитал клиент получает из /accounts.
+   * Дельта капитала по периодам (отчётам): одна строка на отчёт — sum(income) −
+   * sum(expense+daily) всех его операций (переводы нулевые для капитала; пустой
+   * отчёт даёт delta 0), месяц строки = месяц начала периода. Операции вне
+   * отчётов в кривую не входят: деньги на балансе счетов они двигают, а точки
+   * графика живут по периодам.
    */
   async listCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     const { rows } = await pool.query<{ month: string; delta: string }>(
-      `WITH dated AS (
-         SELECT date_trunc('month', coalesce(o.date, o.created_at::date)) AS month,
-                o.type, o.amount
-           FROM public.operations o
-          WHERE o.user_id = $1 AND o.type IN ('income', 'expense', 'daily')
-       ), bounds AS (
-         SELECT min(month) AS first_month,
-                greatest(max(month), date_trunc('month', CURRENT_DATE)) AS last_month
-           FROM dated
-       ), by_month AS (
-         SELECT month,
-                coalesce(sum(amount) FILTER (WHERE type = 'income'), 0)
-                  - coalesce(sum(amount) FILTER (WHERE type IN ('expense', 'daily')), 0) AS delta
-           FROM dated
-          GROUP BY month
-       )
-       SELECT to_char(gs.month, 'YYYY-MM') AS month, coalesce(b.delta, 0) AS delta
-         FROM bounds bo
-         CROSS JOIN LATERAL generate_series(
-           bo.first_month, bo.last_month, interval '1 month'
-         ) AS gs(month)
-         LEFT JOIN by_month b ON b.month = gs.month
-        ORDER BY gs.month`,
+      `SELECT to_char(date_trunc('month', r.period_start), 'YYYY-MM') AS month,
+              coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)
+                - coalesce(
+                    sum(o.amount::numeric) FILTER (WHERE o.type IN ('expense', 'daily')),
+                    0
+                  ) AS delta
+         FROM public.reports r
+         LEFT JOIN public.operations o ON o.report_id = r.id
+        WHERE r.user_id = $1 AND r.period_start IS NOT NULL
+        GROUP BY r.id, r.period_start
+        ORDER BY r.period_start, min(r.created_at)`,
       [userId],
     );
     return rows.map((row) => ({ month: row.month, delta: Number(row.delta) }));
