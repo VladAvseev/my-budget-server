@@ -4,7 +4,6 @@ import {
   requirePrimaryAccount,
   withAccountTransaction,
 } from '@/shared/accountRules.js';
-import { categoriesRepository } from '@/modules/_categories/repository.js';
 import { AppError } from '@/shared/appError.js';
 import {
   isUuid,
@@ -21,11 +20,12 @@ import type {
   OperationDto,
   OperationType,
   OverviewOperationDto,
-  SavingsOperationDto,
+  OperationAccounts,
+  UpdateOperationInput,
 } from './types.js';
 
 /**
- * Бизнес-логика операций: выборки по отчёту/набору отчётов, накопления,
+ * Бизнес-логика операций: выборки по отчёту/набору отчётов, переводы,
  * создание, обновление и удаление.
  *
  * Проверка «отчёт свой» выполняется перед каждым чтением/записью операций
@@ -36,27 +36,30 @@ export class OperationsService {
   /**
    * GET /operations — два режима:
    *  1. ?reportId=&type=  → операции одного отчёта; type допускает
-   *     csv ('savings,savings_out') — так клиент забирает обе savings-ветки
-   *     одним запросом;
+   *     несколько типов через запятую;
    *  2. ?reportIds=a,b,c  → сводка по набору отчётов для overview.
    */
   async list(
     userId: string,
     query: Record<string, unknown>,
   ): Promise<OperationDto[] | OverviewOperationDto[]> {
+    // Проверяем явно переданный фильтр и в режиме сводки по нескольким отчётам.
+    let types: OperationType[] | undefined;
+    if (query.type !== undefined) {
+      if (typeof query.type !== 'string' || query.type === '') {
+        throw new AppError('Некорректный тип операции', 400);
+      }
+      types = query.type
+        .split(',')
+        .map((part) =>
+          requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
+        );
+    }
     if (typeof query.reportIds === 'string' && query.reportIds !== '') {
       return this.listByReports(query.reportIds, userId);
     }
-
-    if (typeof query.type !== 'string' || query.type === '') {
-      throw new AppError('Некорректный тип операции', 400);
-    }
+    if (!types) throw new AppError('Некорректный тип операции', 400);
     const reportId = requireUuid(query.reportId, 'Некорректный идентификатор отчёта');
-    const types = query.type
-      .split(',')
-      .map((part) =>
-        requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
-      );
 
     await this.assertReport(reportId, userId);
     const rows = await operationsRepository.listByReport(reportId, types);
@@ -90,13 +93,7 @@ export class OperationsService {
     return operationsRepository.categorySummary(reportIds, userId);
   }
 
-  /** GET /operations/savings (карточка «Накопления»). */
-  async listSavings(userId: string): Promise<SavingsOperationDto[]> {
-    const rows = await operationsRepository.listSavings(userId);
-    return rows.map((row) => operationsRepository.toSavingsDto(row));
-  }
-
-  /** POST /operations — body: { reportId, type, amount, categoryId?, description?, date? }. */
+  /** POST /operations — поля операции и привязка к счетам. */
   async create(userId: string, body: Record<string, unknown>): Promise<OperationDto> {
     return withAccountTransaction(userId, async (client) => {
       const reportId = requireUuid(body.reportId, 'Некорректный идентификатор отчёта');
@@ -105,87 +102,131 @@ export class OperationsService {
         OPERATION_TYPES,
         'Некорректный тип операции',
       );
-      if (type === 'transfer')
-        throw new AppError(
-          'Создание переводов будет доступно на следующем этапе',
-          400,
-          'TRANSFER_NOT_SUPPORTED',
-        );
+      // Дефолт применяется только при создании и только к отсутствующему полю.
+      const accountId =
+        type !== 'transfer' && body.account_id === undefined
+          ? await requirePrimaryAccount(client, userId)
+          : body.account_id;
+      const accounts = await this.resolveAccounts(client, userId, type, {
+        account_id: accountId,
+        from_account_id: body.from_account_id,
+        to_account_id: body.to_account_id,
+      });
       const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
       const description = optionalStringOrNull(body.description, 'Некорректное описание');
       const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
-      const categoryId = await this.resolveCategoryId(body.categoryId, userId, client);
+      // У перевода категории нет независимо от содержимого запроса.
+      const categoryId =
+        type === 'transfer' ? null : await this.resolveCategoryId(body.categoryId, userId, client);
 
       await this.assertReport(reportId, userId, client);
-
       const row = await operationsRepository.create(
-        { reportId, type, amount, categoryId, description, date },
+        { reportId, type, amount, categoryId, description, date, ...accounts },
         userId,
-        await requirePrimaryAccount(client, userId),
         client,
       );
       return toOperationDto(row);
     });
   }
 
-  /**
-   * PATCH /operations/:id — обновляем только переданные поля: случайный
-   * null в запросе не стирает данные (клиент и так шлёт все поля целиком).
-   */
+  /** PATCH /operations/:id — отсутствующие поля сохраняют текущие значения. */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<OperationDto> {
     return withAccountTransaction(userId, async (client) => {
       const operationId = requireUuid(id);
-
       const current = await this.requireEditableOperation(client, userId, operationId);
-      const input: {
-        amount?: number;
-        categoryId?: string | null;
-        description?: string | null;
-        type?: OperationType;
-        date?: string | null;
-      } = {};
-
-      if (body.amount !== undefined) {
-        input.amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
-      }
-      if (body.categoryId !== undefined) {
-        input.categoryId = await this.resolveCategoryId(body.categoryId, userId, client);
-      }
-      if (body.description !== undefined) {
-        input.description = optionalStringOrNull(body.description, 'Некорректное описание');
-      }
-      if (body.type !== undefined) {
-        input.type = requireEnum<OperationType>(
-          body.type,
-          OPERATION_TYPES,
-          'Некорректный тип операции',
-        );
-      }
-      if (body.date !== undefined) {
-        input.date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
-      }
-
-      if (Object.keys(input).length === 0) {
-        throw new AppError('Не передано ни одного поля для обновления', 400);
-      }
-
-      if (
-        input.type !== undefined &&
-        input.type !== current.type &&
-        (input.type === 'transfer' || current.type === 'transfer')
-      ) {
+      const type = requireEnum<OperationType>(
+        body.type === undefined ? current.type : body.type,
+        OPERATION_TYPES,
+        'Некорректный тип операции',
+      );
+      if (type !== current.type && (type === 'transfer' || current.type === 'transfer')) {
         throw new AppError(
           'Нельзя преобразовать перевод в обычную операцию или наоборот',
           400,
           'INVALID_OPERATION_TYPE_CHANGE',
         );
       }
-      const row = await operationsRepository.update(operationId, userId, input, client);
-      if (!row) {
-        throw new AppError('Операция не найдена', 404);
+      const fields = [
+        'amount',
+        'categoryId',
+        'description',
+        'type',
+        'date',
+        ...(type === 'transfer'
+          ? ['from_account_id', 'to_account_id', 'category_id']
+          : ['account_id']),
+      ];
+      if (!fields.some((field) => body[field] !== undefined)) {
+        throw new AppError('Не передано ни одного поля для обновления', 400);
       }
+
+      const input: UpdateOperationInput = await this.resolveAccounts(client, userId, type, {
+        account_id: body.account_id === undefined ? current.account_id : body.account_id,
+        from_account_id:
+          body.from_account_id === undefined ? current.from_account_id : body.from_account_id,
+        to_account_id:
+          body.to_account_id === undefined ? current.to_account_id : body.to_account_id,
+      });
+      if (body.amount !== undefined) {
+        input.amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
+      }
+      if (type === 'transfer') {
+        input.categoryId = null;
+      } else if (body.categoryId !== undefined) {
+        input.categoryId = await this.resolveCategoryId(body.categoryId, userId, client);
+      }
+      if (body.description !== undefined) {
+        input.description = optionalStringOrNull(body.description, 'Некорректное описание');
+      }
+      if (body.type !== undefined) input.type = type;
+      if (body.date !== undefined) {
+        input.date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
+      }
+      const row = await operationsRepository.update(operationId, userId, input, client);
+      if (!row) throw new AppError('Операция не найдена', 404);
       return toOperationDto(row);
     });
+  }
+
+  /** Единая проверка и нормализация выбранных счетов для создания и обновления. */
+  private async resolveAccounts(
+    client: PoolClient,
+    userId: string,
+    type: OperationType,
+    values: { account_id: unknown; from_account_id: unknown; to_account_id: unknown },
+  ): Promise<OperationAccounts> {
+    const accounts: OperationAccounts = {
+      account_id: null,
+      from_account_id: null,
+      to_account_id: null,
+    };
+    let ids: string[];
+    if (type === 'transfer') {
+      accounts.from_account_id = requireUuid(
+        values.from_account_id,
+        'Некорректный счёт списания',
+      ).toLowerCase();
+      accounts.to_account_id = requireUuid(
+        values.to_account_id,
+        'Некорректный счёт зачисления',
+      ).toLowerCase();
+      if (accounts.from_account_id === accounts.to_account_id) {
+        throw new AppError('Счета перевода должны различаться', 400);
+      }
+      ids = [accounts.from_account_id, accounts.to_account_id];
+    } else {
+      accounts.account_id = requireUuid(
+        values.account_id,
+        'Некорректный счёт операции',
+      ).toLowerCase();
+      ids = [accounts.account_id];
+    }
+    const rows = await operationsRepository.getOwnedAccounts(client, userId, ids);
+    if (rows.length !== ids.length) throw new AppError('Счёт не найден', 400);
+    if (rows.some((row) => row.is_closed)) {
+      throw new AppError('Нельзя выбрать закрытый счёт для операции', 400, 'ACCOUNT_CLOSED');
+    }
+    return accounts;
   }
 
   /** DELETE /operations/:id → 204/404. */
@@ -215,13 +256,13 @@ export class OperationsService {
   private async resolveCategoryId(
     value: unknown,
     userId: string,
-    client?: PoolClient,
+    client: PoolClient,
   ): Promise<string | null> {
     if (value === null || value === undefined || value === '') {
       return null;
     }
     const categoryId = requireUuid(value, 'Некорректный идентификатор категории');
-    if (!(await categoriesRepository.isOwned(userId, categoryId, undefined, client))) {
+    if (!(await operationsRepository.isCategoryAllowed(client, userId, categoryId))) {
       // Чужую категорию не подводим: отвечаем явной ошибкой той же формы.
       throw new AppError('Категория не найдена', 400);
     }

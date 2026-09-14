@@ -19,16 +19,6 @@ export class OperationsController {
     }
   }
 
-  /** GET /operations/savings → 200: все savings/savings_out с данными отчёта. */
-  async getSavings(req: Request, res: Response, next: NextFunction) {
-    try {
-      const operations = await operationsService.listSavings(req.user!.id);
-      res.status(200).json({ data: operations });
-    } catch (error) {
-      next(error);
-    }
-  }
-
   /** GET /operations/category-summary?reportIds= → 200: сводка по категориям. */
   async getCategorySummary(req: Request, res: Response, next: NextFunction) {
     try {
@@ -39,7 +29,7 @@ export class OperationsController {
     }
   }
 
-  /** POST /operations — body: { reportId, type, amount, categoryId?, description?, date? } → 201. */
+  /** POST /operations — поля операции и привязка к счетам → 201. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const operation = await operationsService.create(req.user!.id, req.body ?? {});

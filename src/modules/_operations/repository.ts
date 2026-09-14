@@ -8,8 +8,6 @@ import type {
   OperationRow,
   OperationType,
   OverviewOperationDto,
-  SavingsOperationDto,
-  SavingsOperationRow,
   UpdateOperationInput,
 } from './types.js';
 
@@ -141,36 +139,41 @@ export class OperationsRepository {
     }));
   }
 
-  /**
-   * Пополнения/снятия накоплений с данными отчёта. Порядок:
-   * сначала по периоду отчёта, затем по created_at.
-   */
-  async listSavings(userId: string): Promise<SavingsOperationRow[]> {
-    const { rows } = await pool.query<SavingsOperationRow>(
-      `SELECT o.id, o.report_id, o.user_id, o.type, o.amount, o.category_id,
-              o.description, o.date, o.created_at, o.updated_at,
-              o.account_id, o.from_account_id, o.to_account_id,
-              r.name AS report_name, r.period_start AS report_period_start
-       FROM public.operations o
-       JOIN public.reports r ON r.id = o.report_id
-       WHERE o.user_id = $1 AND o.type IN ('savings', 'savings_out')
-       ORDER BY r.period_start DESC, o.created_at DESC`,
-      [userId],
+  /** Счета только текущего пользователя; вызывается внутри транзакции записи. */
+  async getOwnedAccounts(client: PoolClient, userId: string, ids: string[]) {
+    const { rows } = await client.query<{ id: string; is_closed: boolean }>(
+      `SELECT id, is_closed FROM public.accounts
+       WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+      [userId, ids],
     );
     return rows;
+  }
+
+  /** Для операций допустимы только свои категории доходов и расходов. */
+  async isCategoryAllowed(
+    client: PoolClient,
+    userId: string,
+    categoryId: string,
+  ): Promise<boolean> {
+    const { rows } = await client.query(
+      `SELECT 1 FROM public.categories
+       WHERE user_id = $1 AND id = $2 AND type IN ('income', 'expense')`,
+      [userId, categoryId],
+    );
+    return rows.length > 0;
   }
 
   /** Создание операции: user_id берётся из проверенного токена. */
   async create(
     input: CreateOperationInput,
     userId: string,
-    accountId: string,
     client: PoolClient,
   ): Promise<OperationRow> {
     const { rows } = await client.query<OperationRow>(
       `INSERT INTO public.operations
-         (report_id, user_id, type, amount, category_id, description, date, account_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (report_id, user_id, type, amount, category_id, description, date,
+          account_id, from_account_id, to_account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${OPERATION_COLUMNS}`,
       [
         input.reportId,
@@ -180,7 +183,9 @@ export class OperationsRepository {
         input.categoryId,
         input.description,
         input.date,
-        accountId,
+        input.account_id,
+        input.from_account_id,
+        input.to_account_id,
       ],
     );
     return rows[0];
@@ -220,6 +225,13 @@ export class OperationsRepository {
       sets.push(`date = $${values.length}`);
     }
 
+    for (const field of ['account_id', 'from_account_id', 'to_account_id'] as const) {
+      if (input[field] !== undefined) {
+        values.push(input[field]);
+        sets.push(`${field} = $${values.length}`);
+      }
+    }
+
     if (sets.length === 0) {
       const { rows } = await client.query<OperationRow>(
         `SELECT ${OPERATION_COLUMNS} FROM public.operations
@@ -249,16 +261,6 @@ export class OperationsRepository {
       [id, userId],
     );
     return (rowCount ?? 0) > 0;
-  }
-
-  /** DTO строки «пополнение/снятие» с полями отчёта. */
-  toSavingsDto(row: SavingsOperationRow): SavingsOperationDto {
-    return {
-      ...toOperationDto(row),
-      // Ключи reportName/reportPeriodStart исторические, не переименовываем.
-      reportName: row.report_name,
-      reportPeriodStart: row.report_period_start,
-    };
   }
 }
 
