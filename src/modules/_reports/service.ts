@@ -1,3 +1,8 @@
+import {
+  assertOperationAccountsOpen,
+  requirePrimaryAccount,
+  withAccountTransaction,
+} from '@/shared/accountRules.js';
 import { toOperationDto } from '@/modules/_operations/repository.js';
 import type { OperationDto } from '@/modules/_operations/types.js';
 import { AppError } from '@/shared/appError.js';
@@ -235,43 +240,57 @@ export class ReportsService {
     id: unknown,
     body: Record<string, unknown>,
   ): Promise<OperationDto> {
-    const reportId = requireUuid(id);
-    const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
-    const description = optionalStringOrNull(body.description, 'Некорректное описание');
+    return withAccountTransaction(userId, async (client) => {
+      const reportId = requireUuid(id);
+      const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
+      const description = optionalStringOrNull(body.description, 'Некорректное описание');
 
-    const report = await reportsRepository.getById(reportId, userId);
-    if (!report) {
-      throw new AppError(NOT_FOUND, 404);
-    }
-    if (!report.has_daily_expenses || !report.period_start || !report.period_end) {
-      throw new AppError('Ежедневные расходы не настроены', 400);
-    }
+      const report = await reportsRepository.getById(reportId, userId, client);
+      if (!report) {
+        throw new AppError(NOT_FOUND, 404);
+      }
+      if (!report.has_daily_expenses || !report.period_start || !report.period_end) {
+        throw new AppError('Ежедневные расходы не настроены', 400);
+      }
 
-    const freeDate = await reportsRepository.findFreeDailyDate(
-      reportId,
-      report.period_start,
-      report.period_end,
-    );
-    if (!freeDate) {
-      // Клиент показывает этот текст как есть.
-      throw new AppError('Нет свободных дат в периоде', 400);
-    }
+      const freeDate = await reportsRepository.findFreeDailyDate(
+        reportId,
+        report.period_start,
+        report.period_end,
+        client,
+      );
+      if (!freeDate) {
+        // Клиент показывает этот текст как есть.
+        throw new AppError('Нет свободных дат в периоде', 400);
+      }
 
-    const row = await reportsRepository.insertDailyExpense(
-      reportId,
-      userId,
-      amount,
-      description,
-      freeDate,
-    );
-    return toOperationDto(row);
+      const row = await reportsRepository.insertDailyExpense(
+        reportId,
+        userId,
+        amount,
+        description,
+        freeDate,
+        await requirePrimaryAccount(client, userId),
+        client,
+      );
+      return toOperationDto(row);
+    });
   }
 
   /** DELETE /reports/:id/daily-expenses → 204 (в одной транзакции). */
   async disableDailyExpenses(userId: string, id: unknown): Promise<void> {
     const reportId = requireUuid(id);
-    await this.assertReport(reportId, userId);
-    await reportsRepository.disableDailyExpenses(reportId);
+    await withAccountTransaction(userId, async (client) => {
+      if (!(await reportsRepository.getById(reportId, userId, client))) {
+        throw new AppError(NOT_FOUND, 404);
+      }
+      const operations = await reportsRepository.listDailyOperations(reportId, userId, client);
+      await assertOperationAccountsOpen(
+        client,
+        operations.flatMap((o) => [o.account_id, o.from_account_id, o.to_account_id]),
+      );
+      await reportsRepository.disableDailyExpenses(reportId, userId, client);
+    });
   }
 
   private async assertReport(reportId: string, userId: string): Promise<void> {

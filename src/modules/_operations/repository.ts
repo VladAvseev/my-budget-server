@@ -25,6 +25,9 @@ import type {
 export function toOperationDto(row: OperationRow): OperationDto {
   return {
     id: row.id,
+    account_id: row.account_id,
+    from_account_id: row.from_account_id,
+    to_account_id: row.to_account_id,
     report_id: row.report_id,
     user_id: row.user_id,
     type: row.type,
@@ -39,9 +42,18 @@ export function toOperationDto(row: OperationRow): OperationDto {
 
 /** Полный набор колонок для RETURNING — совпадает с OperationRow. */
 const OPERATION_COLUMNS = `id, report_id, user_id, type, amount, category_id,
+       account_id, from_account_id, to_account_id,
        description, date, created_at, updated_at`;
 
 export class OperationsRepository {
+  async getById(id: string, userId: string, client: PoolClient): Promise<OperationRow | null> {
+    const { rows } = await client.query<OperationRow>(
+      `SELECT ${OPERATION_COLUMNS} FROM public.operations WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    return rows[0] ?? null;
+  }
+
   /** 1 — отчёт существует и принадлежит пользователю; иначе бросаем в сервисе 404. */
   async isReportOwned(reportId: string, userId: string, client?: PoolClient): Promise<boolean> {
     const runner = client ?? pool;
@@ -137,6 +149,7 @@ export class OperationsRepository {
     const { rows } = await pool.query<SavingsOperationRow>(
       `SELECT o.id, o.report_id, o.user_id, o.type, o.amount, o.category_id,
               o.description, o.date, o.created_at, o.updated_at,
+              o.account_id, o.from_account_id, o.to_account_id,
               r.name AS report_name, r.period_start AS report_period_start
        FROM public.operations o
        JOIN public.reports r ON r.id = o.report_id
@@ -148,11 +161,16 @@ export class OperationsRepository {
   }
 
   /** Создание операции: user_id берётся из проверенного токена. */
-  async create(input: CreateOperationInput, userId: string): Promise<OperationRow> {
-    const { rows } = await pool.query<OperationRow>(
+  async create(
+    input: CreateOperationInput,
+    userId: string,
+    accountId: string,
+    client: PoolClient,
+  ): Promise<OperationRow> {
+    const { rows } = await client.query<OperationRow>(
       `INSERT INTO public.operations
-         (report_id, user_id, type, amount, category_id, description, date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         (report_id, user_id, type, amount, category_id, description, date, account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING ${OPERATION_COLUMNS}`,
       [
         input.reportId,
@@ -162,6 +180,7 @@ export class OperationsRepository {
         input.categoryId,
         input.description,
         input.date,
+        accountId,
       ],
     );
     return rows[0];
@@ -175,6 +194,7 @@ export class OperationsRepository {
     id: string,
     userId: string,
     input: UpdateOperationInput,
+    client: PoolClient,
   ): Promise<OperationRow | null> {
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -201,7 +221,7 @@ export class OperationsRepository {
     }
 
     if (sets.length === 0) {
-      const { rows } = await pool.query<OperationRow>(
+      const { rows } = await client.query<OperationRow>(
         `SELECT ${OPERATION_COLUMNS} FROM public.operations
          WHERE id = $1 AND user_id = $2`,
         [id, userId],
@@ -212,7 +232,7 @@ export class OperationsRepository {
     sets.push('updated_at = now()');
     values.push(id, userId);
 
-    const { rows } = await pool.query<OperationRow>(
+    const { rows } = await client.query<OperationRow>(
       `UPDATE public.operations
        SET ${sets.join(', ')}
        WHERE id = $${values.length - 1} AND user_id = $${values.length}
@@ -223,8 +243,8 @@ export class OperationsRepository {
   }
 
   /** Удаление операции с ownership-фильтром. */
-  async remove(id: string, userId: string): Promise<boolean> {
-    const { rowCount } = await pool.query(
+  async remove(id: string, userId: string, client: PoolClient): Promise<boolean> {
+    const { rowCount } = await client.query(
       'DELETE FROM public.operations WHERE id = $1 AND user_id = $2',
       [id, userId],
     );

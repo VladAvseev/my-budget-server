@@ -1,3 +1,9 @@
+import type { PoolClient } from 'pg';
+import {
+  assertOperationAccountsOpen,
+  requirePrimaryAccount,
+  withAccountTransaction,
+} from '@/shared/accountRules.js';
 import { categoriesRepository } from '@/modules/_categories/repository.js';
 import { AppError } from '@/shared/appError.js';
 import {
@@ -92,24 +98,34 @@ export class OperationsService {
 
   /** POST /operations — body: { reportId, type, amount, categoryId?, description?, date? }. */
   async create(userId: string, body: Record<string, unknown>): Promise<OperationDto> {
-    const reportId = requireUuid(body.reportId, 'Некорректный идентификатор отчёта');
-    const type = requireEnum<OperationType>(
-      body.type,
-      OPERATION_TYPES,
-      'Некорректный тип операции',
-    );
-    const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
-    const description = optionalStringOrNull(body.description, 'Некорректное описание');
-    const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
-    const categoryId = await this.resolveCategoryId(body.categoryId, userId);
+    return withAccountTransaction(userId, async (client) => {
+      const reportId = requireUuid(body.reportId, 'Некорректный идентификатор отчёта');
+      const type = requireEnum<OperationType>(
+        body.type,
+        OPERATION_TYPES,
+        'Некорректный тип операции',
+      );
+      if (type === 'transfer')
+        throw new AppError(
+          'Создание переводов будет доступно на следующем этапе',
+          400,
+          'TRANSFER_NOT_SUPPORTED',
+        );
+      const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
+      const description = optionalStringOrNull(body.description, 'Некорректное описание');
+      const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
+      const categoryId = await this.resolveCategoryId(body.categoryId, userId, client);
 
-    await this.assertReport(reportId, userId);
+      await this.assertReport(reportId, userId, client);
 
-    const row = await operationsRepository.create(
-      { reportId, type, amount, categoryId, description, date },
-      userId,
-    );
-    return toOperationDto(row);
+      const row = await operationsRepository.create(
+        { reportId, type, amount, categoryId, description, date },
+        userId,
+        await requirePrimaryAccount(client, userId),
+        client,
+      );
+      return toOperationDto(row);
+    });
   }
 
   /**
@@ -117,63 +133,95 @@ export class OperationsService {
    * null в запросе не стирает данные (клиент и так шлёт все поля целиком).
    */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<OperationDto> {
-    const operationId = requireUuid(id);
+    return withAccountTransaction(userId, async (client) => {
+      const operationId = requireUuid(id);
 
-    const input: {
-      amount?: number;
-      categoryId?: string | null;
-      description?: string | null;
-      type?: OperationType;
-      date?: string | null;
-    } = {};
+      const current = await this.requireEditableOperation(client, userId, operationId);
+      const input: {
+        amount?: number;
+        categoryId?: string | null;
+        description?: string | null;
+        type?: OperationType;
+        date?: string | null;
+      } = {};
 
-    if (body.amount !== undefined) {
-      input.amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
-    }
-    if (body.categoryId !== undefined) {
-      input.categoryId = await this.resolveCategoryId(body.categoryId, userId);
-    }
-    if (body.description !== undefined) {
-      input.description = optionalStringOrNull(body.description, 'Некорректное описание');
-    }
-    if (body.type !== undefined) {
-      input.type = requireEnum<OperationType>(
-        body.type,
-        OPERATION_TYPES,
-        'Некорректный тип операции',
-      );
-    }
-    if (body.date !== undefined) {
-      input.date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
-    }
+      if (body.amount !== undefined) {
+        input.amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
+      }
+      if (body.categoryId !== undefined) {
+        input.categoryId = await this.resolveCategoryId(body.categoryId, userId, client);
+      }
+      if (body.description !== undefined) {
+        input.description = optionalStringOrNull(body.description, 'Некорректное описание');
+      }
+      if (body.type !== undefined) {
+        input.type = requireEnum<OperationType>(
+          body.type,
+          OPERATION_TYPES,
+          'Некорректный тип операции',
+        );
+      }
+      if (body.date !== undefined) {
+        input.date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
+      }
 
-    if (Object.keys(input).length === 0) {
-      throw new AppError('Не передано ни одного поля для обновления', 400);
-    }
+      if (Object.keys(input).length === 0) {
+        throw new AppError('Не передано ни одного поля для обновления', 400);
+      }
 
-    const row = await operationsRepository.update(operationId, userId, input);
-    if (!row) {
-      throw new AppError('Операция не найдена', 404);
-    }
-    return toOperationDto(row);
+      if (
+        input.type !== undefined &&
+        input.type !== current.type &&
+        (input.type === 'transfer' || current.type === 'transfer')
+      ) {
+        throw new AppError(
+          'Нельзя преобразовать перевод в обычную операцию или наоборот',
+          400,
+          'INVALID_OPERATION_TYPE_CHANGE',
+        );
+      }
+      const row = await operationsRepository.update(operationId, userId, input, client);
+      if (!row) {
+        throw new AppError('Операция не найдена', 404);
+      }
+      return toOperationDto(row);
+    });
   }
 
   /** DELETE /operations/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
-    const operationId = requireUuid(id);
-    const removed = await operationsRepository.remove(operationId, userId);
-    if (!removed) {
-      throw new AppError('Операция не найдена', 404);
-    }
+    return withAccountTransaction(userId, async (client) => {
+      const operationId = requireUuid(id);
+      await this.requireEditableOperation(client, userId, operationId);
+      const removed = await operationsRepository.remove(operationId, userId, client);
+      if (!removed) {
+        throw new AppError('Операция не найдена', 404);
+      }
+    });
+  }
+
+  private async requireEditableOperation(client: PoolClient, userId: string, id: string) {
+    const row = await operationsRepository.getById(id, userId, client);
+    if (!row) throw new AppError('Операция не найдена', 404);
+    await assertOperationAccountsOpen(client, [
+      row.account_id,
+      row.from_account_id,
+      row.to_account_id,
+    ]);
+    return row;
   }
 
   /** Категория: null допустим (без категории), иначе — своя, иначе 400. */
-  private async resolveCategoryId(value: unknown, userId: string): Promise<string | null> {
+  private async resolveCategoryId(
+    value: unknown,
+    userId: string,
+    client?: PoolClient,
+  ): Promise<string | null> {
     if (value === null || value === undefined || value === '') {
       return null;
     }
     const categoryId = requireUuid(value, 'Некорректный идентификатор категории');
-    if (!(await categoriesRepository.isOwned(userId, categoryId))) {
+    if (!(await categoriesRepository.isOwned(userId, categoryId, undefined, client))) {
       // Чужую категорию не подводим: отвечаем явной ошибкой той же формы.
       throw new AppError('Категория не найдена', 400);
     }
@@ -181,8 +229,8 @@ export class OperationsService {
   }
 
   /** 404 «Отчёт не найден» и для чужого отчёта — не подсказываем о существовании. */
-  private async assertReport(reportId: string, userId: string): Promise<void> {
-    if (!(await operationsRepository.isReportOwned(reportId, userId))) {
+  private async assertReport(reportId: string, userId: string, client?: PoolClient): Promise<void> {
+    if (!(await operationsRepository.isReportOwned(reportId, userId, client))) {
       throw new AppError('Отчёт не найден', 404);
     }
   }

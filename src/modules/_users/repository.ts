@@ -118,7 +118,7 @@ export class UsersRepository {
 
   /**
    * Обезличивание аккаунта (п.7 требований, вместо physical delete):
-   * финансовые данные стираются безвозвратно (goals/category_limits уходят
+   * финансовые данные стираются безвозвратно (category_limits уходят
    * каскадом categories/reports), сессии удаляются, а строка users остаётся
    * «надгробием» с недостижимым логином/паролем — на неё ссылается
    * обязательный к хранению журнал consent_log (FK без cascade).
@@ -129,17 +129,11 @@ export class UsersRepository {
     userId: string,
     unreachablePasswordHash: string,
   ): Promise<void> {
-    await client.query('DELETE FROM public.operations WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM public.reports WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM public.categories WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM public.accumulations WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM public.refresh_tokens WHERE user_id = $1', [userId]);
     await client.query(
       `UPDATE public.users
           SET login = 'deleted-' || id,
               password_hash = $2,
               role = 'user',
-              start_balance = 0,
               currency = NULL,
               onboarded = false,
               last_active_at = NULL,
@@ -149,6 +143,19 @@ export class UsersRepository {
         WHERE id = $1`,
       [userId, unreachablePasswordHash],
     );
+    // Обезличенный владелец уже допускает удаление основного счёта.
+    // Убираем также ссылки на его счета, даже если у старой операции неверный user_id.
+    await client.query(
+      `DELETE FROM public.operations o WHERE o.user_id = $1 OR EXISTS (
+      SELECT 1 FROM public.accounts a WHERE a.user_id = $1
+      AND (a.id = o.account_id OR a.id = o.from_account_id OR a.id = o.to_account_id)
+    )`,
+      [userId],
+    );
+    await client.query('DELETE FROM public.accounts WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.reports WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.categories WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM public.refresh_tokens WHERE user_id = $1', [userId]);
   }
 
   /**

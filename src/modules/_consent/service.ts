@@ -1,3 +1,4 @@
+import { lockActiveUser } from '@/shared/accountRules.js';
 import { usersRepository } from '@/modules/_users/repository.js';
 import { AppError } from '@/shared/appError.js';
 import { withTransaction } from '@/shared/transaction.js';
@@ -148,6 +149,7 @@ export class ConsentService {
     let published = true;
 
     await withTransaction(async (client) => {
+      await lockActiveUser(client, userId);
       const version = await consentRepository.getCurrentVersion(client, GATING_DOCUMENT_TYPE);
       if (!version) {
         published = false;

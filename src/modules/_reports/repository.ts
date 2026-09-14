@@ -1,3 +1,5 @@
+import type { PoolClient } from 'pg';
+import { withAccountTransaction } from '@/shared/accountRules.js';
 import { pool } from '@/db/pool.js';
 import type { OperationRow } from '@/modules/_operations/types.js';
 import { toIsoString, toNumber, toNumberOrNull } from '@/shared/serialize.js';
@@ -52,6 +54,7 @@ export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
 
 /** Колонки операции для вставки daily-расхода (DTO берём из _operations). */
 const OPERATION_COLUMNS = `id, report_id, user_id, type, amount, category_id,
+       account_id, from_account_id, to_account_id,
        description, date, created_at, updated_at`;
 
 export class ReportsRepository {
@@ -67,8 +70,8 @@ export class ReportsRepository {
   }
 
   /** Отчёт по id: отдаём только его владельцу. */
-  async getById(id: string, userId: string): Promise<ReportRow | null> {
-    const { rows } = await pool.query<ReportRow>(
+  async getById(id: string, userId: string, client?: PoolClient): Promise<ReportRow | null> {
+    const { rows } = await (client ?? pool).query<ReportRow>(
       'SELECT * FROM public.reports WHERE id = $1 AND user_id = $2',
       [id, userId],
     );
@@ -153,13 +156,20 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление отчёта; каскад schema.sql удалит операции и лимиты. */
+  /** Удаление отчёта допускает обнуление ссылки даже у операций закрытых счетов. */
   async remove(id: string, userId: string): Promise<boolean> {
-    const { rowCount } = await pool.query(
-      'DELETE FROM public.reports WHERE id = $1 AND user_id = $2',
-      [id, userId],
-    );
-    return (rowCount ?? 0) > 0;
+    return withAccountTransaction(userId, async (client) => {
+      if (!(await this.getById(id, userId, client))) return false;
+      // Явно сохраняем операции и при старом FK с ON DELETE CASCADE.
+      await client.query('UPDATE public.operations SET report_id = NULL WHERE report_id = $1', [
+        id,
+      ]);
+      const { rowCount } = await client.query(
+        'DELETE FROM public.reports WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      );
+      return (rowCount ?? 0) > 0;
+    });
   }
 
   /**
@@ -292,8 +302,13 @@ export class ReportsRepository {
    * Первая дата периода, на которой ещё нет daily-операции отчёта:
    * generate_series по датам, NOT EXISTS по операциям.
    */
-  async findFreeDailyDate(reportId: string, periodStart: string, periodEnd: string) {
-    const { rows } = await pool.query<{ free_date: string | null }>(
+  async findFreeDailyDate(
+    reportId: string,
+    periodStart: string,
+    periodEnd: string,
+    client: PoolClient,
+  ) {
+    const { rows } = await client.query<{ free_date: string | null }>(
       `SELECT d.date::date AS free_date
        FROM generate_series($1::date, $2::date, interval '1 day') AS d(date)
        WHERE NOT EXISTS (
@@ -314,14 +329,30 @@ export class ReportsRepository {
     amount: number,
     description: string | null,
     date: string,
+    accountId: string,
+    client: PoolClient,
   ): Promise<OperationRow> {
-    const { rows } = await pool.query<OperationRow>(
-      `INSERT INTO public.operations (report_id, user_id, type, amount, description, date)
-       VALUES ($1, $2, 'daily', $3, $4, $5)
+    const { rows } = await client.query<OperationRow>(
+      `INSERT INTO public.operations (report_id, user_id, type, amount, description, date, account_id)
+       VALUES ($1, $2, 'daily', $3, $4, $5, $6)
        RETURNING ${OPERATION_COLUMNS}`,
-      [reportId, userId, amount, description, date],
+      [reportId, userId, amount, description, date, accountId],
     );
     return rows[0];
+  }
+
+  /** Операции для проверки всех трёх ролей счетов перед массовым удалением. */
+  async listDailyOperations(
+    reportId: string,
+    userId: string,
+    client: PoolClient,
+  ): Promise<OperationRow[]> {
+    const { rows } = await client.query<OperationRow>(
+      `SELECT ${OPERATION_COLUMNS} FROM public.operations
+       WHERE report_id = $1 AND user_id = $2 AND type = 'daily'`,
+      [reportId, userId],
+    );
+    return rows;
   }
 
   /**
@@ -329,20 +360,16 @@ export class ReportsRepository {
    * оба statement'а в одной транзакции. Даты периода НЕ трогаем (см.
    * setDailyExpenses).
    */
-  async disableDailyExpenses(reportId: string): Promise<void> {
-    await withTransaction(async (client) => {
-      await client.query("DELETE FROM public.operations WHERE report_id = $1 AND type = 'daily'", [
-        reportId,
-      ]);
-      await client.query(
-        `UPDATE public.reports
-         SET has_daily_expenses = false,
-             daily_budget = null,
-             updated_at = now()
-         WHERE id = $1`,
-        [reportId],
-      );
-    });
+  async disableDailyExpenses(reportId: string, userId: string, client: PoolClient): Promise<void> {
+    await client.query(
+      "DELETE FROM public.operations WHERE report_id = $1 AND user_id = $2 AND type = 'daily'",
+      [reportId, userId],
+    );
+    await client.query(
+      `UPDATE public.reports SET has_daily_expenses = false,
+      daily_budget = null, updated_at = now() WHERE id = $1 AND user_id = $2`,
+      [reportId, userId],
+    );
   }
 }
 

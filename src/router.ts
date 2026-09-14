@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { accountsRouter } from '@/modules/_accounts/router.js';
 import { accumulationsRouter } from '@/modules/_accumulations/router.js';
 import { adminRouter } from '@/modules/_admin/router.js';
 import { authRouter } from '@/modules/_auth/router.js';
@@ -23,6 +24,7 @@ apiRouter.use('/users', usersRouter);
 apiRouter.use('/consent', consentRouter);
 apiRouter.use('/reports', reportsRouter);
 apiRouter.use('/operations', operationsRouter);
+apiRouter.use('/accounts', accountsRouter);
 apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/accumulations', accumulationsRouter);
 apiRouter.use('/goals', goalsRouter);

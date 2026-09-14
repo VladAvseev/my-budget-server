@@ -9,12 +9,15 @@
  */
 
 /** Типы операций — CHECK-констрейнт `operations_type_check` в db/schema.sql. */
-export type OperationType = 'income' | 'expense' | 'savings' | 'savings_out' | 'daily';
+export type OperationType = 'income' | 'expense' | 'daily' | 'transfer';
 
 /** Строка таблицы `operations` как её отдаёт pg (см. db/schema.sql). */
 export interface OperationRow {
+  account_id: string | null;
+  from_account_id: string | null;
+  to_account_id: string | null;
   id: string;
-  report_id: string;
+  report_id: string | null;
   user_id: string;
   type: OperationType;
   /** numeric → строка драйвера pg, в DTO конвертим в число. */
@@ -29,8 +32,11 @@ export interface OperationRow {
 
 /** Ответ API с операцией. */
 export interface OperationDto {
+  account_id: string | null;
+  from_account_id: string | null;
+  to_account_id: string | null;
   id: string;
-  report_id: string;
+  report_id: string | null;
   user_id: string;
   type: OperationType;
   amount: number;
@@ -105,7 +111,6 @@ export interface UpdateOperationInput {
 export const OPERATION_TYPES = [
   'income',
   'expense',
-  'savings',
-  'savings_out',
+  'transfer',
   'daily',
 ] as const satisfies readonly OperationType[];
