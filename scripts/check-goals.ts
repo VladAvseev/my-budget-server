@@ -59,7 +59,15 @@ for (const [resource, controller] of [
 }
 app.use(errorMiddleware);
 const server = app.listen(5501, '127.0.0.1');
-const request = async (path: string, method = 'GET', body?: unknown, otherUser = false) => {
+// Ответ тестового стенда: json() в актуальных @types/node типизирован как unknown,
+// для проверок удобнее any (файл вне src/ и не попадает в eslint).
+type CheckResponse = { status: number; data: any; location: string | null };
+const request = async (
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  otherUser = false,
+): Promise<CheckResponse> => {
   const res = await fetch(`http://127.0.0.1:5501/api/v1${path}`, {
     method,
     headers: {
@@ -70,7 +78,7 @@ const request = async (path: string, method = 'GET', body?: unknown, otherUser =
   });
   return {
     status: res.status,
-    data: res.status === 204 ? null : await res.json(),
+    data: res.status === 204 ? null : ((await res.json()) as any),
     location: res.headers.get('Location'),
   };
 };
