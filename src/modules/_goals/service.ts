@@ -1,81 +1,90 @@
-import { categoriesRepository } from '@/modules/_categories/repository.js';
+import { accountsRepository } from '@/modules/_accounts/repository.js';
+import { withAccountTransaction } from '@/shared/accountRules.js';
 import { AppError } from '@/shared/appError.js';
 import { optionalDateOrNull, requireAmount, requireUuid } from '@/shared/validate.js';
 import { goalsRepository, toGoalDto } from './repository.js';
-import type { GoalDto } from './types.js';
+import type { GoalDto, UpdateGoalInput } from './types.js';
 
-/**
- * Бизнес-логика целей накоплений: создание, обновление, удаление, список.
- *
- * Категория обязана быть своей и savings-типа
- * ('Категория не найдена среди категорий накоплений'); уникальность
- * «одна цель на категорию» держит partial unique index схемы. Обе проверки явные.
- */
+function goalDate(value: unknown): string | null {
+  const date = optionalDateOrNull(value, 'Целевая дата в формате YYYY-MM-DD');
+  if (date !== null) {
+    const parsed = new Date(`${date}T00:00:00Z`);
+    if (
+      date.startsWith('0000') ||
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== date
+    ) {
+      throw new AppError('Укажите существующую календарную дату', 400);
+    }
+  }
+  return date;
+}
 
-const SAVINGS_CATEGORY_TYPE = 'savings' as const;
+function validateBody(body: Record<string, unknown>, allowed: string[]): void {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).some((key) => !allowed.includes(key))
+  ) {
+    throw new AppError('Переданы неподдерживаемые поля цели', 400);
+  }
+}
 
 export class GoalsService {
-  /** GET /goals: цели пользователя (новые сверху). */
   async list(userId: string): Promise<GoalDto[]> {
-    const rows = await goalsRepository.list(userId);
-    return rows.map(toGoalDto);
+    return (await goalsRepository.list(userId)).map(toGoalDto);
   }
 
-  /** POST /goals — body: { categoryId, amount, targetDate? } (CreateGoalModal). */
   async create(userId: string, body: Record<string, unknown>): Promise<GoalDto> {
-    const categoryId = requireUuid(body.categoryId, 'Некорректный идентификатор категории');
-    // check (amount > 0) в схеме goals — валидируем до вставки ради 400, а не 500.
+    validateBody(body, ['accountId', 'amount', 'targetDate']);
+    const accountId = requireUuid(body.accountId, 'Некорректный идентификатор счёта');
     const amount = requireAmount(body.amount, 'Сумма цели должна быть положительным числом');
-    const targetDate = optionalDateOrNull(body.targetDate, 'Целевая дата в формате YYYY-MM-DD');
-
-    // Проверка категории: своя + savings.
-    if (!(await categoriesRepository.isOwned(userId, categoryId, SAVINGS_CATEGORY_TYPE))) {
-      throw new AppError('Категория не найдена среди категорий накоплений', 400);
-    }
-
+    const targetDate = goalDate(body.targetDate);
     try {
-      const row = await goalsRepository.create(userId, { categoryId, amount, targetDate });
-      return toGoalDto(row);
-    } catch (err) {
-      // unique(user_id, category_id): цель на категорию уже заведена.
-      if ((err as { code?: string }).code === '23505') {
-        throw new AppError('Цель для этой категории уже существует', 409);
+      return await withAccountTransaction(userId, async (client) => {
+        const account = await accountsRepository.get(userId, accountId, client);
+        if (!account) throw new AppError('Счёт не найден', 404);
+        if (account.is_closed) throw new AppError('Для закрытого счёта нельзя создать цель', 400);
+        return toGoalDto(
+          await goalsRepository.create(client, userId, { accountId, amount, targetDate }),
+        );
+      });
+    } catch (error) {
+      const pg = error as { code?: string; constraint?: string };
+      if (pg.code === '23505' && pg.constraint === 'goals_account_id_key') {
+        throw new AppError('Цель для этого счёта уже существует', 409);
       }
-      throw err;
+      throw error;
     }
   }
 
-  /** PATCH /goals/:id — body: { amount?, targetDate? } (EditGoalModal). */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<GoalDto> {
     const goalId = requireUuid(id);
-
-    const input: { amount?: number; targetDate?: string | null } = {};
+    validateBody(body, ['amount', 'targetDate']);
+    const input: UpdateGoalInput = {};
     if (body.amount !== undefined) {
       input.amount = requireAmount(body.amount, 'Сумма цели должна быть положительным числом');
     }
     if (body.targetDate !== undefined) {
-      input.targetDate = optionalDateOrNull(body.targetDate, 'Целевая дата в формате YYYY-MM-DD');
+      input.targetDate = goalDate(body.targetDate);
     }
-
-    if (Object.keys(input).length === 0) {
+    if (!Object.keys(input).length)
       throw new AppError('Не передано ни одного поля для обновления', 400);
-    }
-
-    const row = await goalsRepository.update(goalId, userId, input);
-    if (!row) {
-      throw new AppError('Цель не найдена', 404);
-    }
-    return toGoalDto(row);
+    return withAccountTransaction(userId, async (client) => {
+      const row = await goalsRepository.update(client, goalId, userId, input);
+      if (!row) throw new AppError('Цель не найдена', 404);
+      return toGoalDto(row);
+    });
   }
 
-  /** DELETE /goals/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
     const goalId = requireUuid(id);
-    const removed = await goalsRepository.remove(goalId, userId);
-    if (!removed) {
-      throw new AppError('Цель не найдена', 404);
-    }
+    await withAccountTransaction(userId, async (client) => {
+      if (!(await goalsRepository.remove(client, goalId, userId))) {
+        throw new AppError('Цель не найдена', 404);
+      }
+    });
   }
 }
-
 export const goalsService = new GoalsService();

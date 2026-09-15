@@ -15,7 +15,7 @@ export class GoalsController {
     }
   }
 
-  /** POST /goals — body: { categoryId, amount, targetDate? } → 201/400/409. */
+  /** POST /goals — body: { accountId, amount, targetDate? } → 201/400/409. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const goal = await goalsService.create(req.user!.id, req.body ?? {});

@@ -89,7 +89,7 @@ export class AdminRepository {
              'income', count(*) FILTER (WHERE o.type = 'income'),
              'expense', count(*) FILTER (WHERE o.type = 'expense'),
              'daily', count(*) FILTER (WHERE o.type = 'daily'),
-             'savings', count(*) FILTER (WHERE o.type IN ('savings', 'savings_out'))
+             'savings', count(*) FILTER (WHERE o.type = 'transfer')
            )
            FROM public.operations o
          )
@@ -283,10 +283,12 @@ export class AdminRepository {
         SELECT user_id, count(*) AS cnt FROM public.categories GROUP BY user_id
       ) c ON c.user_id = u.id
       LEFT JOIN (
-        SELECT user_id, count(*) AS cnt FROM public.accumulations GROUP BY user_id
+        SELECT user_id, count(*) AS cnt FROM public.accounts WHERE NOT is_closed GROUP BY user_id
       ) a ON a.user_id = u.id
       LEFT JOIN (
-        SELECT user_id, count(*) AS cnt FROM public.goals GROUP BY user_id
+        SELECT g.user_id, count(*) AS cnt FROM public.goals g
+        JOIN public.accounts a ON a.id = g.account_id AND a.user_id = g.user_id
+        WHERE NOT a.is_closed GROUP BY g.user_id
       ) g ON g.user_id = u.id
       WHERE ${NOT_ANONYMIZED_SQL}`,
     );

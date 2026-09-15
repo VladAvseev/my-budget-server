@@ -12,6 +12,24 @@
 -- 'daily' — для ежедневных операций (учитываются в расходе дня, но не в структуре отчёта).
 -- Накопительные категории удалены: для целей накопления теперь используются accounts.
 -- CHECK: CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text]))
+-- Пользователи. Стартовый баланс больше не хранится здесь: он вынесен в accounts.initial_balance.
+CREATE TABLE IF NOT EXISTS public.users (
+    id uuid default gen_random_uuid() not null primary key,
+    created_at timestamp with time zone default now() not null,
+    login text not null unique,
+    email text,
+    password text not null,
+    role text default 'user'::text not null,
+    avatar_url text,
+    created_by uuid references public.users(id) on delete set null,
+    invited_by uuid references public.users(id) on delete set null,
+    last_active_at timestamp with time zone default now() not null,
+    registration_date timestamp with time zone default now() not null,
+    failed_login_attempts integer default 0 not null,
+    locked_until timestamp with time zone,
+    CONSTRAINT users_role_check CHECK (role = ANY (ARRAY['user'::text, 'admin'::text]))
+);
+
 CREATE TABLE IF NOT EXISTS public.categories (
     id uuid default gen_random_uuid() not null primary key,
     name text not null,
@@ -44,23 +62,19 @@ CREATE INDEX IF NOT EXISTS accounts_user_id_idx ON public.accounts USING btree (
 
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_key ON public.accounts USING btree (user_id) WHERE is_primary;
 
--- Пользователи. Стартовый баланс больше не хранится здесь: он вынесен в accounts.initial_balance.
-CREATE TABLE IF NOT EXISTS public.users (
-    id uuid default gen_random_uuid() not null primary key,
-    created_at timestamp with time zone default now() not null,
-    login text not null unique,
-    email text,
-    password text not null,
-    role text default 'user'::text not null,
-    avatar_url text,
-    created_by uuid references public.users(id) on delete set null,
-    invited_by uuid references public.users(id) on delete set null,
-    last_active_at timestamp with time zone default now() not null,
-    registration_date timestamp with time zone default now() not null,
-    failed_login_attempts integer default 0 not null,
-    locked_until timestamp with time zone,
-    CONSTRAINT users_role_check CHECK (role = ANY (ARRAY['user'::text, 'admin'::text]))
+-- Цели по счетам; при закрытии цель сохраняется до повторного открытия.
+CREATE TABLE IF NOT EXISTS public.goals (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    account_id uuid NOT NULL CONSTRAINT goals_account_id_key UNIQUE
+        REFERENCES public.accounts(id) ON DELETE CASCADE,
+    amount numeric NOT NULL CONSTRAINT goals_amount_check
+        CHECK (amount > 0 AND amount < 'Infinity'::numeric),
+    target_date date,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL
 );
+CREATE INDEX IF NOT EXISTS goals_user_id_idx ON public.goals(user_id);
 
 -- Активные сессии (refresh-токены).
 CREATE TABLE IF NOT EXISTS public.refresh_tokens (
@@ -95,6 +109,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_notes_author_id ON public.admin_notes(autho
 
 -- Операции: тип 'income' (доход), 'expense' (расход), 'daily' (ежедневная)
 -- и 'transfer' (перевод между аккаунтами: заполняются from_account_id/to_account_id).
+-- Пользовательские отчёты: конфигурация хранится в JSONB (см. client/src/features/reports).
+CREATE TABLE IF NOT EXISTS public.reports (
+    id uuid default gen_random_uuid() not null primary key,
+    user_id uuid not null references public.users(id) on delete cascade,
+    name text not null,
+    type text not null,
+    data jsonb not null,
+    time_range text,
+    start_date date,
+    end_date date,
+    report_period text not null default 'none'::text,
+    custom_start_day integer,
+    created_at timestamp with time zone default now() not null,
+    updated_at timestamp with time zone default now() not null,
+    CONSTRAINT reports_type_check CHECK (type = ANY (ARRAY['category'::text, 'custom'::text]))
+);
+
 CREATE TABLE IF NOT EXISTS public.operations (
     id uuid default gen_random_uuid() not null primary key,
     user_id uuid references public.users(id) on delete cascade,
@@ -135,23 +166,6 @@ CREATE TABLE IF NOT EXISTS public.category_group_assignments (
     group_name text not null,
     created_at timestamp with time zone default now() not null,
     updated_at timestamp with time zone default now() not null
-);
-
--- Пользовательские отчёты: конфигурация хранится в JSONB (см. client/src/features/reports).
-CREATE TABLE IF NOT EXISTS public.reports (
-    id uuid default gen_random_uuid() not null primary key,
-    user_id uuid not null references public.users(id) on delete cascade,
-    name text not null,
-    type text not null,
-    data jsonb not null,
-    time_range text,
-    start_date date,
-    end_date date,
-    report_period text not null default 'none'::text,
-    custom_start_day integer,
-    created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null,
-    CONSTRAINT reports_type_check CHECK (type = ANY (ARRAY['category'::text, 'custom'::text]))
 );
 
 -- Настройки групп в отчётах (исключение/прочее).

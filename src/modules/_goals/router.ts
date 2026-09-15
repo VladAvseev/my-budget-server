@@ -10,13 +10,12 @@ export const goalsRouter = Router();
 goalsRouter.use(authenticate, requireConsent);
 
 // GET /goals (хук useGoals): цели накоплений пользователя
-// (одна цель на savings-категорию). Секция целей на странице «Накопления»
-// (GoalsSection) и карточка накоплений на главной (AccumulationsCard).
+// Одна цель на счёт; закрытые счета исключены из секции «Капитал».
 goalsRouter.get('/', goalsController.list);
 
 // POST /goals (хук useCreateGoal): создание цели
-// из модалки CreateGoalModal (savings-категория, сумма, желаемая дата).
-// 409, если цель на эту категорию уже есть (уникальна user_id + category_id).
+// из модалки CreateGoalModal (открытый счёт, сумма, желаемая дата).
+// 409, если цель на этот счёт уже есть (уникальный account_id).
 goalsRouter.post('/', goalsController.create);
 
 // PATCH /goals/:id (хук useUpdateGoal): изменение суммы

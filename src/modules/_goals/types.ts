@@ -5,11 +5,11 @@
  * (см. client/src/shared/api/types/domain.ts).
  */
 
-/** Строка таблицы `goals` как её отдаёт pg: одна цель на savings-категорию. */
+/** Строка таблицы `goals` как её отдаёт pg: одна цель на открытый счёт. */
 export interface GoalRow {
   id: string;
   user_id: string;
-  category_id: string;
+  account_id: string;
   amount: string;
   /** Желаемая дата достижения ('YYYY-MM-DD' | null). */
   target_date: string | null;
@@ -21,16 +21,16 @@ export interface GoalRow {
 export interface GoalDto {
   id: string;
   user_id: string;
-  category_id: string;
+  account_id: string;
   amount: number;
   target_date: string | null;
   created_at: string;
   updated_at: string;
 }
 
-/** POST /goals — клиентский GoalInput: { categoryId, amount, targetDate? }. */
+/** POST /goals — клиентский GoalInput: { accountId, amount, targetDate? }. */
 export interface CreateGoalInput {
-  categoryId: string;
+  accountId: string;
   amount: number;
   targetDate: string | null;
 }

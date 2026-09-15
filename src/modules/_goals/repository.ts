@@ -1,22 +1,23 @@
+import type { PoolClient } from 'pg';
 import { pool } from '@/db/pool.js';
 import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { GoalDto, GoalRow, UpdateGoalInput } from './types.js';
 
 /**
  * Слой доступа к данным целей накоплений: список, создание, обновление,
- * удаление. В схеме goals есть unique(user_id, category_id) — «одна цель
- * на категорию».
+ * удаление. В схеме goals есть unique(account_id) — «одна цель
+ * на счёт».
  */
 
 /** Явные колонки вместо SELECT *: состав не зависит от эволюции схемы. */
-const GOAL_COLUMNS = `id, user_id, category_id, amount, target_date, created_at, updated_at`;
+const GOAL_COLUMNS = `id, user_id, account_id, amount, target_date, created_at, updated_at`;
 
 /** Строка БД → DTO ответа. */
 export function toGoalDto(row: GoalRow): GoalDto {
   return {
     id: row.id,
     user_id: row.user_id,
-    category_id: row.category_id,
+    account_id: row.account_id,
     amount: toNumber(row.amount),
     target_date: row.target_date,
     created_at: toIsoString(row.created_at),
@@ -29,29 +30,35 @@ export class GoalsRepository {
   async list(userId: string): Promise<GoalRow[]> {
     const { rows } = await pool.query<GoalRow>(
       `SELECT ${GOAL_COLUMNS} FROM public.goals
-       WHERE user_id = $1
+       WHERE user_id = $1 AND EXISTS (SELECT 1 FROM public.accounts a WHERE a.id = goals.account_id AND a.user_id = $1 AND NOT a.is_closed)
        ORDER BY created_at DESC`,
       [userId],
     );
     return rows;
   }
 
-  /** create_goal: дубль по (user_id, category_id) бросит 23505 — поймаем в сервисе. */
+  /** create_goal: дубль по account_id бросит 23505 — поймаем в сервисе. */
   async create(
+    client: PoolClient,
     userId: string,
-    input: { categoryId: string; amount: number; targetDate: string | null },
+    input: { accountId: string; amount: number; targetDate: string | null },
   ): Promise<GoalRow> {
-    const { rows } = await pool.query<GoalRow>(
-      `INSERT INTO public.goals (user_id, category_id, amount, target_date)
+    const { rows } = await client.query<GoalRow>(
+      `INSERT INTO public.goals (user_id, account_id, amount, target_date)
        VALUES ($1, $2, $3, $4)
        RETURNING ${GOAL_COLUMNS}`,
-      [userId, input.categoryId, input.amount, input.targetDate],
+      [userId, input.accountId, input.amount, input.targetDate],
     );
     return rows[0];
   }
 
   /** update_goal: только свои, только переданные поля (PATCH-семантика). */
-  async update(id: string, userId: string, input: UpdateGoalInput): Promise<GoalRow | null> {
+  async update(
+    client: PoolClient,
+    id: string,
+    userId: string,
+    input: UpdateGoalInput,
+  ): Promise<GoalRow | null> {
     const sets: string[] = [];
     const values: unknown[] = [];
 
@@ -65,7 +72,7 @@ export class GoalsRepository {
     }
 
     if (sets.length === 0) {
-      const { rows } = await pool.query<GoalRow>(
+      const { rows } = await client.query<GoalRow>(
         `SELECT ${GOAL_COLUMNS} FROM public.goals WHERE id = $1 AND user_id = $2`,
         [id, userId],
       );
@@ -75,7 +82,7 @@ export class GoalsRepository {
     sets.push('updated_at = now()');
     values.push(id, userId);
 
-    const { rows } = await pool.query<GoalRow>(
+    const { rows } = await client.query<GoalRow>(
       `UPDATE public.goals
        SET ${sets.join(', ')}
        WHERE id = $${values.length - 1} AND user_id = $${values.length}
@@ -86,8 +93,8 @@ export class GoalsRepository {
   }
 
   /** Удаление цели с ownership-фильтром. */
-  async remove(id: string, userId: string): Promise<boolean> {
-    const { rowCount } = await pool.query(
+  async remove(client: PoolClient, id: string, userId: string): Promise<boolean> {
+    const { rowCount } = await client.query(
       'DELETE FROM public.goals WHERE id = $1 AND user_id = $2',
       [id, userId],
     );
