@@ -1,9 +1,12 @@
 -- Миграция данных 2026-09-15: перенос operations.type='daily' в 'expense'.
 --
 -- Каждому пользователю с daily-операциями заводится категория
--- «Ежедневные расходы» (type='expense', color='#F2756E', icon=NULL),
+-- «Ежедневные расходы» (type='expense', color='#F2756E'),
 -- если у него ещё нет expense-категории с таким именем (без учёта регистра),
 -- затем все его daily-операции переводятся в expense с привязкой к этой категории.
+-- INSERT идёт минимальным набором колонок (user_id, name, type, color):
+-- именно такие есть и в живой БД (см. _categories/repository.ts),
+-- и в schema.sql (остальные колонки там nullable/с дефолтами).
 -- Остальные поля операций (amount, date, time, account_id/from/to_account_id,
 -- report_id, description, created_at) не трогаются; updated_at двигает
 -- trg_operations_updated_at — это ожидаемо, триггер не отключаем.
@@ -22,8 +25,8 @@ begin;
 -- 1. Категория «Ежедневные расходы» каждому пользователю с daily-операциями,
 -- у кого её ещё нет. user_id IS NOT NULL — защита от NOT NULL у categories
 -- (сирот без пользователя в базе нет, проверено до миграции).
-insert into public.categories (user_id, name, type, color, icon, sort_order, archived, parent_id)
-select distinct o.user_id, 'Ежедневные расходы', 'expense', '#F2756E', null, 0, false, null
+insert into public.categories (user_id, name, type, color)
+select distinct o.user_id, 'Ежедневные расходы', 'expense', '#F2756E'
 from public.operations o
 where o.type = 'daily'
   and o.user_id is not null
