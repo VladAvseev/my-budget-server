@@ -10,7 +10,7 @@ import { errorMiddleware } from '../src/middlewares/errorMiddleware.js';
 if (process.env.DATABASE_URL !== 'postgresql://postgres@127.0.0.1:55439/goals_check') throw Error('Только тестовая БД');
 const owner = (await pool.query("SELECT id FROM public.users WHERE login='goals-owner'")).rows[0].id;
 // Локальная фикстура воспроизводит текущие поля runtime, отсутствующие в старой базовой schema.sql.
-await pool.query(`ALTER TABLE public.reports ADD COLUMN IF NOT EXISTS code text DEFAULT '', ADD COLUMN IF NOT EXISTS has_daily_expenses boolean DEFAULT false, ADD COLUMN IF NOT EXISTS daily_budget numeric, ADD COLUMN IF NOT EXISTS period_start date, ADD COLUMN IF NOT EXISTS period_end date;
+await pool.query(`ALTER TABLE public.reports ADD COLUMN IF NOT EXISTS code text DEFAULT '', ADD COLUMN IF NOT EXISTS period_start date, ADD COLUMN IF NOT EXISTS period_end date;
 ALTER TABLE public.reports ALTER COLUMN type SET DEFAULT 'custom', ALTER COLUMN data SET DEFAULT '{}';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS date date; ALTER TABLE public.operations ALTER COLUMN date DROP NOT NULL;`);
@@ -32,9 +32,9 @@ app.post('/api/v1/auth/login',(_req,res)=>res.json({data:{accessToken:'local-goa
 app.use('/api', (req,_res,next)=>{req.user={id:owner};next();});
 app.get('/api/v1/users/me',(_req,res)=>res.json({data:user}));
 app.get('/api/v1/consent/status',(_req,res)=>res.json({data:{needsConsent:false,reason:null,currentVersion:null,grantedVersion:null}}));
-app.get('/api/v1/users/me/bootstrap',(_req,res)=>res.json({data:{profile:user,onboarding:{categories:2,reports:9,operations:8},lastReport:null,globalTotals:{income:1600,expense:0,daily:0}}}));
+app.get('/api/v1/users/me/bootstrap',(_req,res)=>res.json({data:{profile:user,onboarding:{categories:2,reports:9,operations:8},lastReport:null,globalTotals:{income:1600,expense:0}}}));
 app.get('/api/v1/users/me/settings',(_req,res)=>res.json({data:{}}));
-app.get('/api/v1/users/me/summary',(_req,res)=>res.json({data:{income:1600,expense:0,daily:0}}));
+app.get('/api/v1/users/me/summary',(_req,res)=>res.json({data:{income:1600,expense:0}}));
 for(const [resource,controller] of [['goals',goals],['accounts',accounts],['operations',operations],['categories',categories]]){
  app.get(`/api/v1/${resource}`,controller.list);app.post(`/api/v1/${resource}`,controller.create);app.patch(`/api/v1/${resource}/:id`,controller.update);app.delete(`/api/v1/${resource}/:id`,controller.remove);
 }
@@ -43,7 +43,6 @@ app.get('/api/v1/reports',reports.list);
 app.get('/api/v1/reports/:id',reports.getById);
 app.get('/api/v1/reports/:id/summary',reports.getSummary);
 app.get('/api/v1/reports/:id/category-limits',(_req,res)=>res.json({data:[]}));
-app.get('/api/v1/reports/:id/daily-expenses',(_req,res)=>res.json({data:[]}));
 app.use('/api',(req,res)=>{console.warn('Необслуженный маршрут стенда',req.method,req.originalUrl);res.status(404).json({error:{message:'Маршрут стенда не настроен'}});});
 app.use(errorMiddleware);
 app.use(express.static(resolve('../client/dist')));

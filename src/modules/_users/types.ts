@@ -61,8 +61,6 @@ export interface OnboardingState {
 export interface UserSummary {
   income: number;
   expense: number;
-  /** расходы из дневного бюджета. */
-  daily: number;
 }
 
 /**

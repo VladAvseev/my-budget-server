@@ -1,8 +1,7 @@
 import type { PoolClient } from 'pg';
 import { withAccountTransaction } from '@/shared/accountRules.js';
 import { pool } from '@/db/pool.js';
-import type { OperationRow } from '@/modules/_operations/types.js';
-import { toIsoString, toNumber, toNumberOrNull } from '@/shared/serialize.js';
+import { toIsoString, toNumber } from '@/shared/serialize.js';
 import { withTransaction } from '@/shared/transaction.js';
 import type {
   CapitalMonthDto,
@@ -16,11 +15,11 @@ import type {
 } from './types.js';
 
 /**
- * Слой доступа к данным отчётов, их сводок, лимитов категорий и daily-расходов.
+ * Слой доступа к данным отчётов, их сводок и лимитов категорий.
  *
  * Принадлежность строк пользователю обеспечивает сам сервер: каждый запрос
  * фильтрует по user_id, а проверка ownership отчёта вызывается из сервиса
- * перед операциями над вложенными ресурсами (summary/limits/daily).
+ * перед операциями над вложенными ресурсами (summary/limits).
  */
 
 /** Строка БД → DTO ответа (camelCase-ключи задаёт клиентский тип). */
@@ -30,8 +29,6 @@ export function toReportDto(row: ReportRow): ReportDto {
     user_id: row.user_id,
     name: row.name,
     code: row.code,
-    has_daily_expenses: row.has_daily_expenses,
-    daily_budget: toNumberOrNull(row.daily_budget),
     period_start: row.period_start,
     period_end: row.period_end,
     created_at: toIsoString(row.created_at),
@@ -51,11 +48,6 @@ export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
     updated_at: toIsoString(row.updated_at),
   };
 }
-
-/** Колонки операции для вставки daily-расхода (DTO берём из _operations). */
-const OPERATION_COLUMNS = `id, report_id, user_id, type, amount, category_id,
-       account_id, from_account_id, to_account_id,
-       description, date, created_at, updated_at`;
 
 export class ReportsRepository {
   /** Список отчётов пользователя: новые (по началу периода) сверху. */
@@ -100,58 +92,44 @@ export class ReportsRepository {
   async create(userId: string, input: CreateReportInput): Promise<ReportRow> {
     const { rows } = await pool.query<ReportRow>(
       `INSERT INTO public.reports
-         (user_id, name, code, has_daily_expenses, daily_budget, period_start, period_end)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+         (user_id, name, code, period_start, period_end)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [
-        userId,
-        input.name,
-        input.code,
-        input.hasDailyExpenses,
-        input.hasDailyExpenses ? input.dailyBudget : null,
-        input.periodStart,
-        input.periodEnd,
-      ],
+      [userId, input.name, input.code, input.periodStart, input.periodEnd],
     );
     return rows[0];
   }
 
-  /** Ветка p_name из update_report. */
-  async rename(id: string, userId: string, name: string): Promise<ReportRow | null> {
-    const { rows } = await pool.query<ReportRow>(
-      `UPDATE public.reports
-       SET name = $3, updated_at = now()
-       WHERE id = $1 AND user_id = $2
-       RETURNING *`,
-      [id, userId, name],
-    );
-    return rows[0] ?? null;
-  }
-
-  /**
-   * Ветки p_has_daily_expenses true/false из update_report: включение —
-   * записать настройки (бюджет и период), выключение — только снять флаг и
-   * обнулить бюджет. Даты периода при выключении НЕ трогаем: они нужны
-   * списку отчётов и главной (исторически их ошибочно обнуляли).
-   */
-  async setDailyExpenses(
+  /** Частичное обновление отчёта: только переданные поля (REST-семантика PATCH). */
+  async update(
     id: string,
     userId: string,
-    enabled: boolean,
-    dailyBudget: number | null,
-    periodStart: string | null,
-    periodEnd: string | null,
+    patch: { name?: string; periodStart?: string | null; periodEnd?: string | null },
   ): Promise<ReportRow | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [id, userId];
+    if (patch.name !== undefined) {
+      values.push(patch.name);
+      sets.push(`name = $${values.length}`);
+    }
+    if (patch.periodStart !== undefined) {
+      values.push(patch.periodStart);
+      sets.push(`period_start = $${values.length}`);
+    }
+    if (patch.periodEnd !== undefined) {
+      values.push(patch.periodEnd);
+      sets.push(`period_end = $${values.length}`);
+    }
+    if (sets.length === 0) {
+      return this.getById(id, userId);
+    }
+    sets.push('updated_at = now()');
     const { rows } = await pool.query<ReportRow>(
       `UPDATE public.reports
-       SET has_daily_expenses = $3,
-           daily_budget = CASE WHEN $3 THEN $4 ELSE NULL END,
-           period_start = CASE WHEN $3 THEN $5 ELSE period_start END,
-           period_end = CASE WHEN $3 THEN $6 ELSE period_end END,
-           updated_at = now()
+       SET ${sets.join(', ')}
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
-      [id, userId, enabled, enabled ? dailyBudget : null, periodStart, periodEnd],
+      values,
     );
     return rows[0] ?? null;
   }
@@ -182,14 +160,12 @@ export class ReportsRepository {
       income: string;
       expense: string;
       savings: string;
-      daily: string;
     }>(
       `SELECT
          coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0)          AS income,
          coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0)         AS expense,
          coalesce(sum(amount::numeric) FILTER (WHERE type = 'savings'), 0)
-           - coalesce(sum(amount::numeric) FILTER (WHERE type = 'savings_out'), 0) AS savings,
-         coalesce(sum(amount::numeric) FILTER (WHERE type = 'daily'), 0)           AS daily
+           - coalesce(sum(amount::numeric) FILTER (WHERE type = 'savings_out'), 0) AS savings
        FROM public.operations
        WHERE report_id = $1`,
       [reportId],
@@ -199,13 +175,12 @@ export class ReportsRepository {
       income: Number(row.income),
       expense: Number(row.expense),
       savings: Number(row.savings),
-      daily: Number(row.daily),
     };
   }
 
   /**
    * Дельта капитала по периодам (отчётам): одна строка на отчёт — sum(income) −
-   * sum(expense+daily) всех его операций (переводы нулевые для капитала; пустой
+   * sum(expense) всех его операций (переводы нулевые для капитала; пустой
    * отчёт даёт delta 0), месяц строки = месяц начала периода. Операции вне
    * отчётов в кривую не входят: деньги на балансе счетов они двигают, а точки
    * графика живут по периодам.
@@ -215,7 +190,7 @@ export class ReportsRepository {
       `SELECT to_char(date_trunc('month', r.period_start), 'YYYY-MM') AS month,
               coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)
                 - coalesce(
-                    sum(o.amount::numeric) FILTER (WHERE o.type IN ('expense', 'daily')),
+                    sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'),
                     0
                   ) AS delta
          FROM public.reports r
@@ -283,80 +258,6 @@ export class ReportsRepository {
       );
       return rows;
     });
-  }
-
-  /**
-   * Первая дата периода, на которой ещё нет daily-операции отчёта:
-   * generate_series по датам, NOT EXISTS по операциям.
-   */
-  async findFreeDailyDate(
-    reportId: string,
-    periodStart: string,
-    periodEnd: string,
-    client: PoolClient,
-  ) {
-    const { rows } = await client.query<{ free_date: string | null }>(
-      `SELECT d.date::date AS free_date
-       FROM generate_series($1::date, $2::date, interval '1 day') AS d(date)
-       WHERE NOT EXISTS (
-         SELECT 1 FROM public.operations o
-         WHERE o.report_id = $3 AND o.type = 'daily' AND o.date = d.date::date
-       )
-       ORDER BY d.date
-       LIMIT 1`,
-      [periodStart, periodEnd, reportId],
-    );
-    return rows[0]?.free_date ?? null;
-  }
-
-  /** INSERT daily-операции (category_id у таких операций не заполняется). */
-  async insertDailyExpense(
-    reportId: string,
-    userId: string,
-    amount: number,
-    description: string | null,
-    date: string,
-    accountId: string,
-    client: PoolClient,
-  ): Promise<OperationRow> {
-    const { rows } = await client.query<OperationRow>(
-      `INSERT INTO public.operations (report_id, user_id, type, amount, description, date, account_id)
-       VALUES ($1, $2, 'daily', $3, $4, $5, $6)
-       RETURNING ${OPERATION_COLUMNS}`,
-      [reportId, userId, amount, description, date, accountId],
-    );
-    return rows[0];
-  }
-
-  /** Операции для проверки всех трёх ролей счетов перед массовым удалением. */
-  async listDailyOperations(
-    reportId: string,
-    userId: string,
-    client: PoolClient,
-  ): Promise<OperationRow[]> {
-    const { rows } = await client.query<OperationRow>(
-      `SELECT ${OPERATION_COLUMNS} FROM public.operations
-       WHERE report_id = $1 AND user_id = $2 AND type = 'daily'`,
-      [reportId, userId],
-    );
-    return rows;
-  }
-
-  /**
-   * Отключение daily-режима: удаление daily-операций + сброс флага и бюджета —
-   * оба statement'а в одной транзакции. Даты периода НЕ трогаем (см.
-   * setDailyExpenses).
-   */
-  async disableDailyExpenses(reportId: string, userId: string, client: PoolClient): Promise<void> {
-    await client.query(
-      "DELETE FROM public.operations WHERE report_id = $1 AND user_id = $2 AND type = 'daily'",
-      [reportId, userId],
-    );
-    await client.query(
-      `UPDATE public.reports SET has_daily_expenses = false,
-      daily_budget = null, updated_at = now() WHERE id = $1 AND user_id = $2`,
-      [reportId, userId],
-    );
   }
 }
 

@@ -2,8 +2,8 @@ import { reportsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
 /**
- * HTTP-слой отчётов и вложенных ресурсов (summary, category-limits,
- * daily-expenses). Маршруты закрыты `authenticate` в router.ts, поэтому
+ * HTTP-слой отчётов и вложенных ресурсов (summary, category-limits).
+ * Маршруты закрыты `authenticate` в router.ts, поэтому
  * id пользователя берётся из проверенного JWT.
  */
 export class ReportsController {
@@ -17,7 +17,7 @@ export class ReportsController {
     }
   }
 
-  /** POST /reports — body: { name, code?, hasDailyExpenses?, ... } → 201 + Location. */
+  /** POST /reports — body: { name, code?, periodStart?, periodEnd? } → 201 + Location. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const report = await reportsService.create(req.user!.id, req.body ?? {});
@@ -37,7 +37,7 @@ export class ReportsController {
     }
   }
 
-  /** PATCH /reports/:id → 200: переименование или вкл/выкл daily-режима. */
+  /** PATCH /reports/:id → 200: переименование и правка периода. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const report = await reportsService.update(req.user!.id, req.params.id, req.body ?? {});
@@ -57,7 +57,7 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/:id/summary → 200: { income, expense, savings, daily }. */
+  /** GET /reports/:id/summary → 200: { income, expense, savings }. */
   async getSummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await reportsService.getSummary(req.user!.id, req.params.id);
@@ -96,30 +96,6 @@ export class ReportsController {
         req.body ?? {},
       );
       res.status(200).json({ data: limits });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /** POST /reports/:id/daily-expenses — body: { amount, description? } → 201: daily-операция. */
-  async createDailyExpense(req: Request, res: Response, next: NextFunction) {
-    try {
-      const operation = await reportsService.createDailyExpense(
-        req.user!.id,
-        req.params.id,
-        req.body ?? {},
-      );
-      res.status(201).json({ data: operation });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /** DELETE /reports/:id/daily-expenses → 204: отключение ежедневных расходов. */
-  async disableDailyExpenses(req: Request, res: Response, next: NextFunction) {
-    try {
-      await reportsService.disableDailyExpenses(req.user!.id, req.params.id);
-      res.status(204).end();
     } catch (error) {
       next(error);
     }

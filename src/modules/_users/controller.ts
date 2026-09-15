@@ -38,7 +38,7 @@ export class UsersController {
     }
   }
 
-  /** GET /users/me/summary → 200: { income, expense, daily } по всем операциям. */
+  /** GET /users/me/summary → 200: { income, expense } по всем операциям. */
   async getSummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await usersService.getSummary(req.user!.id);

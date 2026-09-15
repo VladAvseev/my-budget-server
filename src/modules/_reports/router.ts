@@ -22,7 +22,7 @@ reportsRouter.get('/capital-dynamics', reportsController.getCapitalDynamics);
 
 // POST /reports (хук useCreateReport): создание отчёта
 // из модалки CreateReportModal на странице «Отчёты»
-// (name, code периода, настройки daily-расходов, период start/end).
+// (name, code периода, период start/end).
 reportsRouter.post('/', reportsController.create);
 
 // GET /reports/:id (хук useReport): один отчёт по id.
@@ -30,8 +30,7 @@ reportsRouter.post('/', reportsController.create);
 reportsRouter.get('/:id', reportsController.getById);
 
 // PATCH /reports/:id (хук useUpdateReport): переименование
-// отчёта и включение/выключение ежедневных расходов (карточки настроек отчёта:
-// переименование и DailyExpensesCard).
+// отчёта и правка периода (карточки настроек отчёта).
 reportsRouter.patch('/:id', reportsController.update);
 
 // DELETE /reports/:id (хук useRemoveReport): удаление
@@ -53,15 +52,3 @@ reportsRouter.get('/:id/category-limits', reportsController.getCategoryLimits);
 // в одной транзакции). Категория лимита должна принадлежать тому же
 // пользователю — это проверяет сервис.
 reportsRouter.put('/:id/category-limits', reportsController.setCategoryLimits);
-
-// POST /reports/:id/daily-expenses (хук
-// useCreateDailyExpense): добавление daily-расхода на первую свободную дату
-// периода (период сервер берёт из строки отчёта). Форма операции на странице
-// отчёта, ежедневная вкладка.
-reportsRouter.post('/:id/daily-expenses', reportsController.createDailyExpense);
-
-// DELETE /reports/:id/daily-expenses (хук
-// useDisableDailyExpenses): отключение ежедневных расходов — удаляет все
-// daily-операции отчёта и сбрасывает настройки (кнопка «Отключить»
-// в DailyExpensesCard).
-reportsRouter.delete('/:id/daily-expenses', reportsController.disableDailyExpenses);

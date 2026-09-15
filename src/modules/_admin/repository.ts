@@ -78,8 +78,7 @@ export class AdminRepository {
           ),
          'reports', (
            SELECT jsonb_build_object(
-             'total', count(*),
-             'withDailyExpenses', count(*) FILTER (WHERE r.has_daily_expenses)
+             'total', count(*)
            )
            FROM public.reports r
          ),
@@ -88,7 +87,6 @@ export class AdminRepository {
              'total', count(*),
              'income', count(*) FILTER (WHERE o.type = 'income'),
              'expense', count(*) FILTER (WHERE o.type = 'expense'),
-             'daily', count(*) FILTER (WHERE o.type = 'daily'),
              'savings', count(*) FILTER (WHERE o.type = 'transfer')
            )
            FROM public.operations o
@@ -256,8 +254,6 @@ export class AdminRepository {
         'operationsCount', coalesce(o.cnt, 0),
         'categoriesCount', coalesce(c.cnt, 0),
         'incomeCount', coalesce(o.income_cnt, 0),
-        'dailyCount', coalesce(o.daily_cnt, 0),
-        'dailyReportsCount', coalesce(o.daily_reports_cnt, 0),
         'expenseCount', coalesce(o.expense_cnt, 0),
         'savingsCount', coalesce(o.savings_cnt, 0),
         'accumulationsCount', coalesce(a.cnt, 0),
@@ -272,8 +268,6 @@ export class AdminRepository {
           user_id,
           count(*) AS cnt,
           count(*) FILTER (WHERE type = 'income') AS income_cnt,
-          count(*) FILTER (WHERE type = 'daily') AS daily_cnt,
-          count(DISTINCT report_id) FILTER (WHERE type = 'daily') AS daily_reports_cnt,
           count(*) FILTER (WHERE type = 'expense') AS expense_cnt,
           count(*) FILTER (WHERE type IN ('savings', 'savings_out')) AS savings_cnt
         FROM public.operations

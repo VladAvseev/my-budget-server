@@ -12,7 +12,7 @@ export const operationsRouter = Router();
 operationsRouter.use(authenticate, requireConsent);
 
 // GET /operations?reportId=&type=: операции отчёта; типы можно перечислить через запятую.
-// Допустимы income, expense, daily, transfer.
+// Допустимы income, expense, transfer.
 // GET /operations?reportIds=: сводка по набору отчётов.
 operationsRouter.get('/', operationsController.list);
 

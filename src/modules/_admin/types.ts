@@ -40,13 +40,11 @@ export interface AdminDashboardStats {
   };
   reports: {
     total: number;
-    withDailyExpenses: number;
   };
   operations: {
     total: number;
     income: number;
     expense: number;
-    daily: number;
     /** savings и savings_out считаются вместе. */
     savings: number;
   };
@@ -107,8 +105,6 @@ export interface AdminUserRow {
   operationsCount: number;
   categoriesCount: number;
   incomeCount: number;
-  dailyCount: number;
-  dailyReportsCount: number;
   expenseCount: number;
   savingsCount: number;
   accumulationsCount: number;

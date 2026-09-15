@@ -1,16 +1,7 @@
-import {
-  assertOperationAccountsOpen,
-  requirePrimaryAccount,
-  withAccountTransaction,
-} from '@/shared/accountRules.js';
-import { toOperationDto } from '@/modules/_operations/repository.js';
-import type { OperationDto } from '@/modules/_operations/types.js';
 import { AppError } from '@/shared/appError.js';
 import {
   optionalDateOrNull,
-  optionalStringOrNull,
   requireAmount,
-  requireBoolean,
   requireNonEmptyString,
   requireUuid,
 } from '@/shared/validate.js';
@@ -24,11 +15,10 @@ import type {
 } from './types.js';
 
 /**
- * Бизнес-логика отчётов: создание/обновление, сводки, лимиты категорий
- * и daily-расходы.
+ * Бизнес-логика отчётов: создание/обновление, сводки и лимиты категорий.
  *
- * Тексты ошибок исторические ('Такой период уже существует',
- * 'Нет свободных дат в периоде') — клиент показывает их как есть, без маппинга.
+ * Текст ошибки 'Такой период уже существует' исторический — клиент показывает
+ * его как есть, без маппинга.
  */
 
 /** Ошибочный ответ «нет отчёта» для чужого id — не раскрываем существование. */
@@ -43,8 +33,7 @@ export class ReportsService {
 
   /**
    * POST /reports.
-   * Body (camelCase, как OperationInput/ReportInput клиента):
-   * { name, code?, hasDailyExpenses?, dailyBudget?, periodStart?, periodEnd? }.
+   * Body (camelCase): { name, code?, periodStart?, periodEnd? }.
    */
   async create(userId: string, body: Record<string, unknown>): Promise<ReportDto> {
     const name = requireNonEmptyString(body.name, 'Название отчёта обязательно');
@@ -52,16 +41,6 @@ export class ReportsService {
     // Пустой код — «не задан»: проверка дубликата нужна только непустым,
     // частичный unique-индекс в схеме — второй эшелон.
     const code = typeof body.code === 'string' ? body.code.trim() : '';
-
-    const hasDailyExpenses =
-      body.hasDailyExpenses === undefined
-        ? false
-        : requireBoolean(body.hasDailyExpenses, 'Некорректный флаг ежедневных расходов');
-
-    // daily_budget имеет смысл только при включённом daily-режиме.
-    const dailyBudget = hasDailyExpenses
-      ? requireAmount(body.dailyBudget, 'Бюджет на день должен быть положительным числом')
-      : null;
 
     const periodStart = optionalDateOrNull(
       body.periodStart,
@@ -80,8 +59,6 @@ export class ReportsService {
       const row = await reportsRepository.create(userId, {
         name,
         code,
-        hasDailyExpenses,
-        dailyBudget,
         periodStart,
         periodEnd,
       });
@@ -106,51 +83,39 @@ export class ReportsService {
   }
 
   /**
-   * PATCH /reports/:id: либо { name } (переименование), либо
-   * { hasDailyExpenses, dailyBudget?, periodStart?, periodEnd? }
-   * (включение/выключение daily-режима).
+   * PATCH /reports/:id: { name?, periodStart?, periodEnd? } (переименование
+   * и правка периода). Отсылаются только переданные поля.
    */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<ReportDto> {
     const reportId = requireUuid(id);
     // Проверяем владение до модификации.
-    if (!(await reportsRepository.getById(reportId, userId))) {
+    const current = await reportsRepository.getById(reportId, userId);
+    if (!current) {
       throw new AppError(NOT_FOUND, 404);
     }
 
+    const patch: { name?: string; periodStart?: string | null; periodEnd?: string | null } = {};
     if (body.name !== undefined) {
-      const name = requireNonEmptyString(body.name, 'Название отчёта обязательно');
-      const row = await reportsRepository.rename(reportId, userId, name);
-      return toReportDto(this.must(row));
+      patch.name = requireNonEmptyString(body.name, 'Название отчёта обязательно');
     }
-
-    if (body.hasDailyExpenses !== undefined) {
-      const enabled = requireBoolean(
-        body.hasDailyExpenses,
-        'Некорректный флаг ежедневных расходов',
-      );
-      const dailyBudget = enabled
-        ? requireAmount(body.dailyBudget, 'Бюджет на день должен быть положительным числом')
-        : null;
-      const periodStart = optionalDateOrNull(
+    if (body.periodStart !== undefined) {
+      patch.periodStart = optionalDateOrNull(
         body.periodStart,
         'Дата начала периода в формате YYYY-MM-DD',
       );
-      const periodEnd = optionalDateOrNull(
+    }
+    if (body.periodEnd !== undefined) {
+      patch.periodEnd = optionalDateOrNull(
         body.periodEnd,
         'Дата окончания периода в формате YYYY-MM-DD',
       );
-      const row = await reportsRepository.setDailyExpenses(
-        reportId,
-        userId,
-        enabled,
-        dailyBudget,
-        periodStart,
-        periodEnd,
-      );
-      return toReportDto(this.must(row));
+    }
+    if (patch.name === undefined && patch.periodStart === undefined && patch.periodEnd === undefined) {
+      throw new AppError('Не передано ни одного поля для обновления', 400);
     }
 
-    throw new AppError('Не передано ни одного поля для обновления', 400);
+    const row = await reportsRepository.update(reportId, userId, patch);
+    return toReportDto(this.must(row));
   }
 
   /** DELETE /reports/:id → 204/404. */
@@ -227,70 +192,6 @@ export class ReportsService {
       }
       throw err;
     }
-  }
-
-  /**
-   * POST /reports/:id/daily-expenses.
-   * Период берём из строки отчёта, а не из тела запроса: клиент шлёт то же,
-   * что уже лежит в базе, а базе верить надёжнее.
-   * Вставка — на первую свободную дату периода.
-   */
-  async createDailyExpense(
-    userId: string,
-    id: unknown,
-    body: Record<string, unknown>,
-  ): Promise<OperationDto> {
-    return withAccountTransaction(userId, async (client) => {
-      const reportId = requireUuid(id);
-      const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
-      const description = optionalStringOrNull(body.description, 'Некорректное описание');
-
-      const report = await reportsRepository.getById(reportId, userId, client);
-      if (!report) {
-        throw new AppError(NOT_FOUND, 404);
-      }
-      if (!report.has_daily_expenses || !report.period_start || !report.period_end) {
-        throw new AppError('Ежедневные расходы не настроены', 400);
-      }
-
-      const freeDate = await reportsRepository.findFreeDailyDate(
-        reportId,
-        report.period_start,
-        report.period_end,
-        client,
-      );
-      if (!freeDate) {
-        // Клиент показывает этот текст как есть.
-        throw new AppError('Нет свободных дат в периоде', 400);
-      }
-
-      const row = await reportsRepository.insertDailyExpense(
-        reportId,
-        userId,
-        amount,
-        description,
-        freeDate,
-        await requirePrimaryAccount(client, userId),
-        client,
-      );
-      return toOperationDto(row);
-    });
-  }
-
-  /** DELETE /reports/:id/daily-expenses → 204 (в одной транзакции). */
-  async disableDailyExpenses(userId: string, id: unknown): Promise<void> {
-    const reportId = requireUuid(id);
-    await withAccountTransaction(userId, async (client) => {
-      if (!(await reportsRepository.getById(reportId, userId, client))) {
-        throw new AppError(NOT_FOUND, 404);
-      }
-      const operations = await reportsRepository.listDailyOperations(reportId, userId, client);
-      await assertOperationAccountsOpen(
-        client,
-        operations.flatMap((o) => [o.account_id, o.from_account_id, o.to_account_id]),
-      );
-      await reportsRepository.disableDailyExpenses(reportId, userId, client);
-    });
   }
 
   private async assertReport(reportId: string, userId: string): Promise<void> {

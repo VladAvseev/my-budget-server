@@ -12,9 +12,6 @@ export interface ReportRow {
   name: string;
   /** Код периода ('' — не задан); уникален в рамках пользователя (частичный индекс). */
   code: string;
-  has_daily_expenses: boolean;
-  /** numeric → строка pg; null, когда daily-режим выключен. */
-  daily_budget: string | null;
   /** 'YYYY-MM-DD' | null (парсер DATE отключён в pool.ts). */
   period_start: string | null;
   period_end: string | null;
@@ -28,8 +25,6 @@ export interface ReportDto {
   user_id: string;
   name: string;
   code: string;
-  has_daily_expenses: boolean;
-  daily_budget: number | null;
   period_start: string | null;
   period_end: string | null;
   created_at: string;
@@ -70,7 +65,6 @@ export interface ReportSummary {
   expense: number;
   /** savings минус savings_out — «накоплено с учётом снятий». */
   savings: number;
-  daily: number;
 }
 
 /** Дельта капитала за период (отчёт) для GET /reports/capital-dynamics. */
@@ -83,8 +77,6 @@ export interface CapitalMonthDto {
 export interface CreateReportInput {
   name: string;
   code: string;
-  hasDailyExpenses: boolean;
-  dailyBudget: number | null;
   periodStart: string | null;
   periodEnd: string | null;
 }

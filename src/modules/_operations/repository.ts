@@ -63,20 +63,16 @@ export class OperationsRepository {
   }
 
   /**
-   * Операции одного отчёта по одному или нескольким типам. Порядок: для
-   * одиночного daily — по дате расхода (nulls last), для остальных —
-   * по времени создания; оба desc.
+   * Операции одного отчёта по одному или нескольким типам. Порядок —
+   * по времени создания, desc.
    */
   async listByReport(reportId: string, types: OperationType[]): Promise<OperationRow[]> {
-    const dailyOnly = types.length === 1 && types[0] === 'daily';
     const { rows } = await pool.query<OperationRow>(
       `SELECT ${OPERATION_COLUMNS}
        FROM public.operations
        WHERE report_id = $1 AND type = ANY($2::text[])
-       ORDER BY
-         (CASE WHEN $3 THEN date ELSE NULL END) DESC NULLS LAST,
-         created_at DESC`,
-      [reportId, types, dailyOnly],
+       ORDER BY created_at DESC`,
+      [reportId, types],
     );
     return rows;
   }
@@ -128,7 +124,7 @@ export class OperationsRepository {
               coalesce(sum(amount::numeric), 0) AS amount
          FROM public.operations
         WHERE report_id = ANY($1::uuid[]) AND user_id = $2
-          AND type IN ('income', 'expense', 'daily')
+          AND type IN ('income', 'expense')
         GROUP BY report_id, type, category_id`,
       [reportIds, userId],
     );

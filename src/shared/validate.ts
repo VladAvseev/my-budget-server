@@ -90,7 +90,7 @@ export function requireEnum<T extends string>(
   return value as T;
 }
 
-/** Булев флаг из JSON (hasDailyExpenses/onboarded-подобные поля). */
+/** Булев флаг из JSON (onboarded-подобные поля). */
 export function requireBoolean(value: unknown, message: string): boolean {
   if (typeof value !== 'boolean') {
     throw new AppError(message, 400);

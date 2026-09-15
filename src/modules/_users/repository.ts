@@ -32,14 +32,12 @@ interface HomeBootstrapRow {
   onboarded: boolean;
   income: string;
   expense: string;
-  daily: string;
   last_report_id: string | null;
   last_report_name: string | null;
   last_report_start: string | null;
   last_report_end: string | null;
   last_income: string | null;
   last_expense: string | null;
-  last_daily: string | null;
   categories: number;
   reports: number;
   operations: number;
@@ -179,12 +177,10 @@ export class UsersRepository {
     const { rows } = await pool.query<{
       income: string;
       expense: string;
-      daily: string;
     }>(
       `SELECT
          coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0)  AS income,
-         coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS expense,
-         coalesce(sum(amount::numeric) FILTER (WHERE type = 'daily'), 0)   AS daily
+         coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS expense
        FROM public.operations
        WHERE user_id = $1`,
       [userId],
@@ -193,7 +189,6 @@ export class UsersRepository {
     return {
       income: Number(row.income),
       expense: Number(row.expense),
-      daily: Number(row.daily),
     };
   }
 
@@ -209,8 +204,7 @@ export class UsersRepository {
        totals AS (
          SELECT
            coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0)  AS income,
-           coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS expense,
-           coalesce(sum(amount::numeric) FILTER (WHERE type = 'daily'), 0)   AS daily
+           coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS expense
          FROM public.operations
          WHERE user_id = $1
        ),
@@ -224,8 +218,7 @@ export class UsersRepository {
        last_summary AS (
          SELECT
            coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)  AS income,
-           coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0) AS expense,
-           coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'daily'), 0)   AS daily
+           coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0) AS expense
          FROM public.operations o
          JOIN last_report lr ON lr.id = o.report_id
        ),
@@ -237,10 +230,10 @@ export class UsersRepository {
        )
        SELECT
          u.currency, u.onboarded,
-         t.income, t.expense, t.daily,
+         t.income, t.expense,
          lr.id AS last_report_id, lr.name AS last_report_name,
          lr.period_start AS last_report_start, lr.period_end AS last_report_end,
-         ls.income AS last_income, ls.expense AS last_expense, ls.daily AS last_daily,
+         ls.income AS last_income, ls.expense AS last_expense,
          c.categories, c.reports, c.operations
        FROM public.users u
        CROSS JOIN totals t
@@ -277,14 +270,12 @@ export class UsersRepository {
             summary: {
               income: Number(row.last_income),
               expense: Number(row.last_expense),
-              daily: Number(row.last_daily),
             },
           }
         : null,
       globalTotals: {
         income: Number(row.income),
         expense: Number(row.expense),
-        daily: Number(row.daily),
       },
     };
   }

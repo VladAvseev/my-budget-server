@@ -1,7 +1,7 @@
 /** Типы операций и DTO ответов API (snake_case). */
 
 /** Типы операций — CHECK-констрейнт `operations_type_check` в db/schema.sql. */
-export type OperationType = 'income' | 'expense' | 'daily' | 'transfer';
+export type OperationType = 'income' | 'expense' | 'transfer';
 
 /** Строка таблицы `operations` как её отдаёт pg (см. db/schema.sql). */
 export interface OperationRow {
@@ -91,9 +91,4 @@ export interface UpdateOperationInput extends Partial<OperationAccounts> {
 }
 
 /** Перечисление type операций — CHECK-констрейнт в db/schema.sql. */
-export const OPERATION_TYPES = [
-  'income',
-  'expense',
-  'transfer',
-  'daily',
-] as const satisfies readonly OperationType[];
+export const OPERATION_TYPES = ['income', 'expense', 'transfer'] as const satisfies readonly OperationType[];

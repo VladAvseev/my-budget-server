@@ -8,10 +8,9 @@
 --   * накопления превращены в accounts, savings/savings_out — в operations.type = 'transfer';
 --   * удалены таблицы accumulations и goals, а также type='savings' у categories.
 --
--- Типы категорий: 'income' (доход) и 'expense' (расход) — для обычных операций,
--- 'daily' — для ежедневных операций (учитываются в расходе дня, но не в структуре отчёта).
+-- Типы категорий: 'income' (доход) и 'expense' (расход) — для обычных операций.
 -- Накопительные категории удалены: для целей накопления теперь используются accounts.
--- CHECK: CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text]))
+-- CHECK: CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text]))
 -- Пользователи. Стартовый баланс больше не хранится здесь: он вынесен в accounts.initial_balance.
 CREATE TABLE IF NOT EXISTS public.users (
     id uuid default gen_random_uuid() not null primary key,
@@ -41,7 +40,7 @@ CREATE TABLE IF NOT EXISTS public.categories (
     parent_id uuid references public.categories(id) on delete cascade,
     type text default 'expense'::text not null,
     archived boolean default false not null,
-    CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text]))
+    CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text]))
 );
 
 -- Аккаунты пользователя: основной счёт, накопления и будущие отдельные кошельки.
@@ -107,7 +106,7 @@ CREATE TABLE IF NOT EXISTS public.admin_notes (
 CREATE INDEX IF NOT EXISTS idx_admin_notes_user_id ON public.admin_notes(user_id);
 CREATE INDEX IF NOT EXISTS idx_admin_notes_author_id ON public.admin_notes(author_id);
 
--- Операции: тип 'income' (доход), 'expense' (расход), 'daily' (ежедневная)
+-- Операции: тип 'income' (доход), 'expense' (расход)
 -- и 'transfer' (перевод между аккаунтами: заполняются from_account_id/to_account_id).
 -- Пользовательские отчёты: конфигурация хранится в JSONB (см. client/src/features/reports).
 CREATE TABLE IF NOT EXISTS public.reports (
@@ -141,7 +140,7 @@ CREATE TABLE IF NOT EXISTS public.operations (
     report_id uuid references public.reports(id) on delete set null,
     created_at timestamp with time zone default now() not null,
     updated_at timestamp with time zone default now() not null,
-    CONSTRAINT operations_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'daily'::text, 'transfer'::text]))
+    CONSTRAINT operations_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'transfer'::text]))
 );
 
 -- Лимиты расходов по категориям для отчётов.
@@ -275,11 +274,7 @@ BEGIN
     (NEW.id, 'Развлечения', 'expense', '🎮', '#E91E63'),
     (NEW.id, 'Кафе и рестораны', 'expense', '🍽️', '#FF5722'),
     (NEW.id, 'Жильё', 'expense', '🏠', '#795548'),
-    (NEW.id, 'Здоровье', 'expense', '💊', '#00BCD4'),
-    (NEW.id, 'Кофе', 'daily', '☕', '#F44336'),
-    (NEW.id, 'Обед', 'daily', '🍜', '#FFC107'),
-    (NEW.id, 'Транспорт (ежедневный)', 'daily', '🚇', '#607D8B'),
-    (NEW.id, 'Продукты (ежедневные)', 'daily', '🥖', '#3F51B5')
+    (NEW.id, 'Здоровье', 'expense', '💊', '#00BCD4')
   ON CONFLICT DO NOTHING;
 
   RETURN NEW;

@@ -10,7 +10,7 @@
  *   * `timestamptz` — настоящий Date, сериализуем через toISOString().
  */
 
-/** numeric-строка → число; null сохраняется (напр. daily_budget у отчёта без daily-режима). */
+/** numeric-строка → число; null сохраняется. */
 export function toNumberOrNull(value: string | null): number | null {
   return value === null ? null : Number(value);
 }

@@ -7,7 +7,7 @@ import type { AccountChanges, AccountDto, AccountRow } from './types.js';
 const BALANCE = `a.initial_balance + coalesce((
   SELECT sum(
     CASE WHEN o.account_id = a.id AND o.type = 'income' THEN o.amount
-         WHEN o.account_id = a.id AND o.type IN ('expense', 'daily') THEN -o.amount
+         WHEN o.account_id = a.id AND o.type = 'expense' THEN -o.amount
          ELSE 0 END
     + CASE WHEN o.type = 'transfer' AND o.to_account_id = a.id THEN o.amount ELSE 0 END
     - CASE WHEN o.type = 'transfer' AND o.from_account_id = a.id THEN o.amount ELSE 0 END)
