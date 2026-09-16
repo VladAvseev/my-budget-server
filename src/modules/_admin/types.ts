@@ -107,7 +107,9 @@ export interface AdminUserRow {
   incomeCount: number;
   expenseCount: number;
   savingsCount: number;
-  accumulationsCount: number;
+  /** Открытые счета (public.accounts WHERE NOT is_closed). */
+  accountsCount: number;
+  /** Цели на открытых счетах. */
   goalsCount: number;
 }
 
@@ -123,8 +125,11 @@ export interface AdminUserOption {
 
 // ── Логи запросов (таблица public.request_logs) ─────────────────────────────
 
-/** Фильтр списка логов: все / только успешные (<400) / только с ошибкой (≥400). */
-export type LogsStatusFilter = 'all' | 'success' | 'error';
+/**
+ * Фильтр списка логов по классу статуса: все / info (<400) / warning (4xx) /
+ * error (5xx).
+ */
+export type LogsStatusFilter = 'all' | 'info' | 'warning' | 'error';
 
 /** Допустимые значения фильтра methods в GET /admin/logs (пустой список — все). */
 export type LogsMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -202,24 +207,20 @@ export interface AdminLogEndpointStat {
   errorCount: number;
 }
 
-/** Динамика по дню (или по часу при period=24h). */
-export interface AdminLogsSeriesPoint {
-  point: string; // 'YYYY-MM-DD' или ISO-час
-  total: number;
-  errors: number;
-}
-
-/** Ответ GET /admin/logs/metrics. */
+/**
+ * Ответ GET /admin/logs/metrics. Счётчики разбиты по классам статуса:
+ * info (<400), warning (4xx), error (только 5xx). Топ-листы — по 10 позиций.
+ */
 export interface AdminLogsMetrics {
   period: LogsPeriod;
   total: number;
-  successCount: number;
+  infoCount: number;
+  warningCount: number;
   errorCount: number;
-  /** Доля ошибок 0..1 (null, если запросов не было). */
+  /** Доля ошибок (только 5xx) 0..1 (null, если запросов не было). */
   errorRate: number | null;
   avgDurationMs: number | null;
   p95DurationMs: number | null;
   topSlowestEndpoints: AdminLogEndpointStat[];
   topErrorEndpoints: AdminLogEndpointStat[];
-  perPoint: AdminLogsSeriesPoint[];
 }

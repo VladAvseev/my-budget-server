@@ -162,7 +162,12 @@ export class AdminService {
   // ── Логи запросов ─────────────────────────────────────────────────────────
 
   /** Белые списки значений фильтров — вне списка бросаем 400. */
-  private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = ['all', 'success', 'error'];
+  private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = [
+    'all',
+    'info',
+    'warning',
+    'error',
+  ];
   private static readonly LOG_METHODS: LogsMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
   private static readonly LOG_PERIODS: LogsPeriod[] = ['24h', '7d', '30d', 'all'];
   private static readonly LOG_SORT_FIELDS: LogsSortField[] = ['date', 'duration'];
@@ -172,9 +177,9 @@ export class AdminService {
   private static readonly LOG_USER_ANONYMOUS = 'anonymous';
 
   /**
-   * GET /admin/logs — query: status=all|success|error, userId=<uuid>|anonymous,
-   * methods=GET,POST (пусто — все методы), page, limit, sort=date|duration,
-   * order=asc|desc.
+   * GET /admin/logs — query: status=all|info|warning|error,
+   * userId=<uuid>|anonymous, methods=GET,POST (пусто — все методы), page,
+   * limit, sort=date|duration, order=asc|desc.
    */
   async listLogs(query: Record<string, unknown>): Promise<AdminLogsPage> {
     const status = (query.status ?? 'all') as string;

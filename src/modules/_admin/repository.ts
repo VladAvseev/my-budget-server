@@ -256,7 +256,7 @@ export class AdminRepository {
         'incomeCount', coalesce(o.income_cnt, 0),
         'expenseCount', coalesce(o.expense_cnt, 0),
         'savingsCount', coalesce(o.savings_cnt, 0),
-        'accumulationsCount', coalesce(a.cnt, 0),
+        'accountsCount', coalesce(acc.cnt, 0),
         'goalsCount', coalesce(g.cnt, 0)
       )), '[]'::jsonb) AS data
       FROM public.users u
@@ -278,7 +278,7 @@ export class AdminRepository {
       ) c ON c.user_id = u.id
       LEFT JOIN (
         SELECT user_id, count(*) AS cnt FROM public.accounts WHERE NOT is_closed GROUP BY user_id
-      ) a ON a.user_id = u.id
+      ) acc ON acc.user_id = u.id
       LEFT JOIN (
         SELECT g.user_id, count(*) AS cnt FROM public.goals g
         JOIN public.accounts a ON a.id = g.account_id AND a.user_id = g.user_id
@@ -307,13 +307,14 @@ export class AdminRepository {
 
   /**
    * Страница логов для админки. Фильтр по статусу — whitelist из
-   * LogsStatusFilter, мапится в условие status < 400 / >= 400; фильтр по
-   * автору — LogsUserFilter (все / без авторизации / конкретный пользователь);
-   * фильтр по методам — whitelist LogsMethod (пустой список — без фильтра).
-   * Сортировка — whitelist LogsSortField/LogsSortOrder (колонка подставляется
-   * из маппинга, не из строки клиента), tie-breaker id DESC для стабильной
-   * пагинации при одинаковых duration_ms. Логин автора тянется LEFT JOIN по
-   * public.users: у строк без авторизации (user_id is null) он остаётся null.
+   * LogsStatusFilter, мапится в условие по классу статуса (info: < 400,
+   * warning: 400–499, error: >= 500); фильтр по автору — LogsUserFilter
+   * (все / без авторизации / конкретный пользователь); фильтр по методам —
+   * whitelist LogsMethod (пустой список — без фильтра). Сортировка —
+   * whitelist LogsSortField/LogsSortOrder (колонка подставляется из маппинга,
+   * не из строки клиента), tie-breaker id DESC для стабильной пагинации при
+   * одинаковых duration_ms. Логин автора тянется LEFT JOIN по public.users:
+   * у строк без авторизации (user_id is null) он остаётся null.
    */
   async getLogs(
     filter: LogsStatusFilter,
@@ -328,10 +329,12 @@ export class AdminRepository {
     const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
     const conditions: string[] = [];
     const params: unknown[] = [];
-    if (filter === 'success') {
+    if (filter === 'info') {
       conditions.push(`rl.status < 400`);
+    } else if (filter === 'warning') {
+      conditions.push(`rl.status >= 400 AND rl.status < 500`);
     } else if (filter === 'error') {
-      conditions.push(`rl.status >= 400`);
+      conditions.push(`rl.status >= 500`);
     }
     if (user.kind === 'anonymous') {
       conditions.push(`rl.is_authenticated = false`);
@@ -394,8 +397,8 @@ export class AdminRepository {
   }
 
   /**
-   * Метрики по логам за период: счётчики, среднее/p95, топы эндпоинтов,
-   * динамика (для 24h — по часам, иначе по дням). Период мапится в
+   * Метрики по логам за период: счётчики по классам статуса (info/warning/
+   * error — только 5xx), среднее/p95, топ-10 эндпоинтов. Период мапится в
    * PostgreSQL-интервал через whitelist — никакой строки от клиента в SQL
    * не подставляется.
    */
@@ -407,18 +410,19 @@ export class AdminRepository {
     };
     const where =
       period === 'all' ? '' : `WHERE created_at >= now() - interval '${intervalMap[period]}'`;
-    const seriesTrunc = period === '24h' ? 'hour' : 'day';
 
     const totalsQuery = pool.query<{
       total: string;
-      success_count: string;
+      info_count: string;
+      warning_count: string;
       error_count: string;
       avg_duration_ms: string | null;
       p95_duration_ms: string | null;
     }>(
       `SELECT count(*) AS total,
-              count(*) FILTER (WHERE status < 400) AS success_count,
-              count(*) FILTER (WHERE status >= 400) AS error_count,
+              count(*) FILTER (WHERE status < 400) AS info_count,
+              count(*) FILTER (WHERE status >= 400 AND status < 500) AS warning_count,
+              count(*) FILTER (WHERE status >= 500) AS error_count,
               avg(duration_ms) AS avg_duration_ms,
               percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_duration_ms
        FROM public.request_logs ${where}`,
@@ -432,11 +436,11 @@ export class AdminRepository {
     }>(
       `SELECT method || ' ' || path AS endpoint, count(*) AS count,
               avg(duration_ms) AS avg_duration_ms,
-              count(*) FILTER (WHERE status >= 400) AS error_count
+              count(*) FILTER (WHERE status >= 500) AS error_count
        FROM public.request_logs ${where}
        GROUP BY 1
        ORDER BY avg(duration_ms) DESC
-       LIMIT 5`,
+       LIMIT 10`,
     );
 
     const topErrorsQuery = pool.query<{
@@ -447,28 +451,18 @@ export class AdminRepository {
     }>(
       `SELECT method || ' ' || path AS endpoint, count(*) AS count,
               avg(duration_ms) AS avg_duration_ms,
-              count(*) FILTER (WHERE status >= 400) AS error_count
+              count(*) FILTER (WHERE status >= 500) AS error_count
        FROM public.request_logs
-       ${where ? `${where} AND` : 'WHERE'} status >= 400
+       ${where ? `${where} AND` : 'WHERE'} status >= 500
        GROUP BY 1
        ORDER BY count(*) DESC
-       LIMIT 5`,
+       LIMIT 10`,
     );
 
-    const seriesQuery = pool.query<{ point: string; total: string; errors: string }>(
-      `SELECT date_trunc('${seriesTrunc}', created_at) AS point,
-              count(*) AS total,
-              count(*) FILTER (WHERE status >= 400) AS errors
-       FROM public.request_logs ${where}
-       GROUP BY 1
-       ORDER BY 1 ASC`,
-    );
-
-    const [totals, topSlowest, topErrors, series] = await Promise.all([
+    const [totals, topSlowest, topErrors] = await Promise.all([
       totalsQuery,
       topSlowestQuery,
       topErrorsQuery,
-      seriesQuery,
     ]);
 
     const t = totals.rows[0];
@@ -490,18 +484,14 @@ export class AdminRepository {
     return {
       period,
       total,
-      successCount: Number(t?.success_count ?? 0),
+      infoCount: Number(t?.info_count ?? 0),
+      warningCount: Number(t?.warning_count ?? 0),
       errorCount,
       errorRate: total > 0 ? Math.round((errorCount / total) * 1000) / 1000 : null,
       avgDurationMs: t?.avg_duration_ms == null ? null : Math.round(Number(t.avg_duration_ms)),
       p95DurationMs: t?.p95_duration_ms == null ? null : Math.round(Number(t.p95_duration_ms)),
       topSlowestEndpoints: topSlowest.rows.map(toEndpointStat),
       topErrorEndpoints: topErrors.rows.map(toEndpointStat),
-      perPoint: series.rows.map((row) => ({
-        point: new Date(row.point).toISOString(),
-        total: Number(row.total),
-        errors: Number(row.errors),
-      })),
     };
   }
 }
