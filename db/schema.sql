@@ -202,9 +202,9 @@ CREATE TABLE IF NOT EXISTS public.request_logs (
     created_at timestamp with time zone default now() not null,
     method text not null,
     path text not null,
-    status_code integer not null,
+    status smallint not null,
     duration_ms integer not null,
-    error_text text,
+    error text,
     user_id uuid references public.users(id) on delete set null,
     is_authenticated boolean not null default false,
     user_role text
@@ -246,8 +246,10 @@ CREATE INDEX IF NOT EXISTS idx_category_group_assignments_category_id ON public.
 CREATE INDEX IF NOT EXISTS idx_report_period_settings_user_id ON public.report_period_settings USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_report_period_settings_report_id ON public.report_period_settings USING btree (report_id);
 
-CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON public.request_logs USING btree (created_at);
-CREATE INDEX IF NOT EXISTS idx_request_logs_path_status ON public.request_logs USING btree (path, status_code);
+CREATE INDEX IF NOT EXISTS request_logs_created_at_idx ON public.request_logs USING btree (created_at desc);
+CREATE INDEX IF NOT EXISTS request_logs_status_created_at_idx ON public.request_logs USING btree (status, created_at desc);
+CREATE INDEX IF NOT EXISTS request_logs_user_id_idx ON public.request_logs USING btree (user_id, created_at desc);
+CREATE INDEX IF NOT EXISTS request_logs_user_role_created_at_idx ON public.request_logs USING btree (user_role, created_at desc);
 
 CREATE OR REPLACE FUNCTION public.set_updated_at()
  RETURNS trigger
