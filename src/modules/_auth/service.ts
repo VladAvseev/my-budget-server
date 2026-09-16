@@ -37,20 +37,11 @@ const BCRYPT_ROUNDS = 10;
  */
 const LOGIN_REGEX = /^[a-zа-яё0-9_.-]{3,20}$/;
 
-/** Окончание как у домена почты: «ivanov.com» в логахинах не приветствуется. */
-const EMAIL_TLD_SUFFIX_REGEX = /\.(com|ru|by|net|org)$/;
-
-/** Телефон после вычитания разделителей: подряд 6+ цифр без букв. */
-const PHONE_LIKE_REGEX = /^\d{6,}$/;
-
-/** Длинная «только цифры» последовательность внутри логина (номер телефона/карты). */
-const LONG_DIGIT_RUN_REGEX = /\d{10,}/;
-
 /**
- * Единый текст отказа валидации (по требованию продукта не различает почту,
- * телефон и ФИО), в том же формулировании — в клиентском validateLogin.ts.
+ * Единый текст отказа валидации, в том же формулировании —
+ * в клиентском validateLogin.ts.
  */
-const INVALID_LOGIN_MESSAGE = 'Логин не должен быть почтой, ФИО или телефоном';
+const INVALID_LOGIN_MESSAGE = 'Логин: 3–20 символов: буквы, цифры, _ - .';
 
 /**
  * Минимальная длина НОВОГО пароля (регистрация и смена). С 2026-09 поднята с
@@ -110,28 +101,15 @@ function getDummyHash(): string {
 
 /**
  * Нормализация и валидация логина: trim + нижний регистр, затем regex
- * допустимых символов и блоки «почта/ФИО/телефон» (ФИО отсекается запретом
- * пробелов). null — логин недопустим; нормализованное значение — тот вид,
- * в котором он уходит в БД (в нижнем регистре — как его же ищет citext).
+ * допустимых символов. null — логин недопустим; нормализованное значение —
+ * тот вид, в котором он уходит в БД (в нижнем регистре — как его же ищет citext).
  */
 function normalizeLogin(login: unknown): string | null {
   if (typeof login !== 'string') {
     return null;
   }
   const value = login.trim().toLowerCase();
-  if (!LOGIN_REGEX.test(value)) {
-    return null;
-  }
-  if (EMAIL_TLD_SUFFIX_REGEX.test(value)) {
-    return null;
-  }
-  if (PHONE_LIKE_REGEX.test(value.replace(/[-._\s]/g, ''))) {
-    return null;
-  }
-  if (LONG_DIGIT_RUN_REGEX.test(value)) {
-    return null;
-  }
-  return value;
+  return LOGIN_REGEX.test(value) ? value : null;
 }
 
 /** Проверка пароля — тексты ошибок зеркалят маппинг getErrorMessage() клиента. */
