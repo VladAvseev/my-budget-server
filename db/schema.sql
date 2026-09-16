@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS public.operations (
     amount numeric not null,
     category_id uuid references public.categories(id) on delete set null,
     description text,
-    report_id uuid references public.reports(id) on delete set null,
+    report_id uuid references public.reports(id) on delete cascade,
     created_at timestamp with time zone default now() not null,
     updated_at timestamp with time zone default now() not null,
     CONSTRAINT operations_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'transfer'::text]))

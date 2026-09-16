@@ -134,14 +134,15 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление отчёта допускает обнуление ссылки даже у операций закрытых счетов. */
+  /** Удаление отчёта вместе с его операциями, включая операции закрытых счетов. */
   async remove(id: string, userId: string): Promise<boolean> {
     return withAccountTransaction(userId, async (client) => {
       if (!(await this.getById(id, userId, client))) return false;
-      // Явно сохраняем операции и при старом FK с ON DELETE CASCADE.
-      await client.query('UPDATE public.operations SET report_id = NULL WHERE report_id = $1', [
-        id,
-      ]);
+      // Явно удаляем операции до отчёта, чтобы не зависеть от FK в живой БД.
+      // Проверка закрытости счетов здесь не применяется: удаление периода —
+      // исключение, как обезличивание (иначе период с операциями закрытого
+      // счёта нельзя было бы удалить, а SET NULL оставлял бы ghost-балансы).
+      await client.query('DELETE FROM public.operations WHERE report_id = $1', [id]);
       const { rowCount } = await client.query(
         'DELETE FROM public.reports WHERE id = $1 AND user_id = $2',
         [id, userId],
