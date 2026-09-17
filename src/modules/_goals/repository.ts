@@ -3,16 +3,8 @@ import { pool } from '@/db/pool.js';
 import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { GoalDto, GoalRow, UpdateGoalInput } from './types.js';
 
-/**
- * Слой доступа к данным целей накоплений: список, создание, обновление,
- * удаление. В схеме goals есть unique(account_id) — «одна цель
- * на счёт».
- */
-
-/** Явные колонки вместо SELECT *: состав не зависит от эволюции схемы. */
 const GOAL_COLUMNS = `id, user_id, account_id, amount, target_date, created_at, updated_at`;
 
-/** Строка БД → DTO ответа. */
 export function toGoalDto(row: GoalRow): GoalDto {
   return {
     id: row.id,
@@ -26,7 +18,7 @@ export function toGoalDto(row: GoalRow): GoalDto {
 }
 
 export class GoalsRepository {
-  /** get_goals(p_user_id): свои цели, новые сверху. */
+
   async list(userId: string): Promise<GoalRow[]> {
     const { rows } = await pool.query<GoalRow>(
       `SELECT ${GOAL_COLUMNS} FROM public.goals
@@ -37,7 +29,6 @@ export class GoalsRepository {
     return rows;
   }
 
-  /** create_goal: дубль по account_id бросит 23505 — поймаем в сервисе. */
   async create(
     client: PoolClient,
     userId: string,
@@ -52,7 +43,6 @@ export class GoalsRepository {
     return rows[0];
   }
 
-  /** update_goal: только свои, только переданные поля (PATCH-семантика). */
   async update(
     client: PoolClient,
     id: string,
@@ -92,7 +82,6 @@ export class GoalsRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление цели с ownership-фильтром. */
   async remove(client: PoolClient, id: string, userId: string): Promise<boolean> {
     const { rowCount } = await client.query(
       'DELETE FROM public.goals WHERE id = $1 AND user_id = $2',

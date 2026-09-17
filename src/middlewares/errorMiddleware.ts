@@ -1,31 +1,18 @@
 import { AppError } from '@/shared/appError.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/** Форма ошибки из body-parser (express.json): текст англоязычный, наружу не пускаем. */
 interface ParserError {
   status?: number;
   type?: string;
 }
 
-/**
- * Единая точка выдачи ошибок. Принципы:
- *   * AppError — ожидаемые ошибки бизнес-логики (валидация, доступ): их текст
- *     русский и предназначен пользователю, отдаём как есть;
- *   * ошибки парсинга тела (некорректный JSON, превышение лимита размера) —
- *     штатные 4xx, но текст тела-parser'а светит внутренности библиотеки,
- *     заменяем на русские формулировки;
- *   * всё остальное — неожиданные сбои (баги, ошибки pg): наружу уходит только
- *     общая формулировка, имена таблиц/констрейнтов из текста pg — это
- *     бесплатная разведка для атакующего; полный текст со стеком — в stderr.
- */
 export function errorMiddleware(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
     res.status(err.status).json({
       error: {
         message: err.message,
         status: err.status,
-        // machine-readable код включаем в envelope только когда он задан —
-        // форма ошибки для старых клиентов остаётся прежней.
+
         ...(err.code ? { code: err.code } : {}),
       },
     });
@@ -41,8 +28,7 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
     res.status(413).json({ error: { message: 'Слишком большой запрос', status: 413 } });
     return;
   }
-  // Прочие 4xx от библиотек (например, entity.encoding.unsupported у express.json):
-  // статус честный, но текст англоязычный — отдаём нейтральный русский.
+
   if (
     typeof parserError.status === 'number' &&
     parserError.status >= 400 &&

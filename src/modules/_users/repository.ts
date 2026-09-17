@@ -9,24 +9,12 @@ import type {
   UserSummary,
 } from './types.js';
 
-/**
- * Формат логина обезличенного аккаунта: 'deleted-' + uuid (45 символов).
- * Зарегистрировать такой нельзя (валидатор разрешает ≤20 символов), поэтому
- * совпадения с живыми логинами нет; распознаётся и в SQL (админ-списки/
- * статистика исключают «надгробия»), и в сервисе.
- */
 export function isAnonymizedLogin(login: string): boolean {
   return /^deleted-[0-9a-f-]{36}$/.test(login);
 }
 
-/** SQL-предикат того же фильтра для запросов к public.users (алиас колонки — login). */
 export const NOT_ANONYMIZED_SQL = "login !~ '^deleted-[0-9a-f-]{36}$'";
 
-/**
- * «Сырая» строка большого CTE-запроса bootstrap: numeric-суммы pg отдаёт
- * строками, ::int-счётчики — числами, jsonb-агрегаты — разобранными структурами
- * (pg парсит jsonb через JSON.parse).
- */
 interface HomeBootstrapRow {
   currency: string | null;
   onboarded: boolean;
@@ -43,11 +31,6 @@ interface HomeBootstrapRow {
   operations: number;
 }
 
-/**
- * Преобразование строки БД в DTO для API-ответа:
- * убираем password_hash и переводим snake_case → camelCase
- * (клиентские типы исторически в camelCase, так UI не менять).
- */
 export function toPublicUser(row: UserRow): PublicUser {
   return {
     id: row.id,
@@ -62,17 +45,12 @@ export function toPublicUser(row: UserRow): PublicUser {
 }
 
 export class UsersRepository {
-  /** Полный профиль по id; null — пользователя нет (ид был из подделанного JWT). */
+
   async getById(id: string): Promise<UserRow | null> {
     const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE id = $1', [id]);
     return rows[0] ?? null;
   }
 
-  /**
-   * Выборочное обновление профиля. Поля принимаются только из whitelist
-   * (currency/onboarded) — SQL-инъекция через имена полей
-   * исключена, значения всегда уходят параметрами $n.
-   */
   async update(id: string, input: UpdateProfileInput): Promise<UserRow | null> {
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -86,7 +64,6 @@ export class UsersRepository {
       sets.push(`onboarded = $${values.length}`);
     }
 
-    // Нечего обновлять — просто возвращаем текущую строку (PATCH идемпотентен).
     if (sets.length === 0) {
       return this.getById(id);
     }
@@ -101,14 +78,6 @@ export class UsersRepository {
     return rows[0] ?? null;
   }
 
-  /**
-   * Обезличивание аккаунта (п.7 требований, вместо physical delete):
-   * финансовые данные стираются безвозвратно (category_limits уходят
-   * каскадом categories/reports), сессии удаляются, а строка users остаётся
-   * «надгробием» с недостижимым логином/паролем — на неё ссылается
-   * обязательный к хранению журнал consent_log (FK без cascade).
-   * Выполняется внутри транзакции вызывающего (см. _consent/service).
-   */
   async anonymize(
     client: PoolClient,
     userId: string,
@@ -128,8 +97,7 @@ export class UsersRepository {
         WHERE id = $1`,
       [userId, unreachablePasswordHash],
     );
-    // Обезличенный владелец уже допускает удаление основного счёта.
-    // Убираем также ссылки на его счета, даже если у старой операции неверный user_id.
+
     await client.query(
       `DELETE FROM public.operations o WHERE o.user_id = $1 OR EXISTS (
       SELECT 1 FROM public.accounts a WHERE a.user_id = $1
@@ -143,11 +111,6 @@ export class UsersRepository {
     await client.query('DELETE FROM public.refresh_tokens WHERE user_id = $1', [userId]);
   }
 
-  /**
-   * Счётчики для онбординг-чеклиста (порт get_onboarding_state из useOnboardingChecklist.sql):
-   * сколько сущностей пользователь уже создал — UI по ней подсвечивает выполненные шаги.
-   * count(*) приходит из pg строкой (bigint), поэтому ::int + Number().
-   */
   async getOnboardingState(userId: string): Promise<OnboardingState> {
     const { rows } = await pool.query<{
       categories: number;
@@ -168,11 +131,6 @@ export class UsersRepository {
     };
   }
 
-  /**
-   * Сводка по всем операциям пользователя (порт get_user_summary из useGlobalBalance.sql):
-   * суммы по основным денежным типам за всё время. Переводы между счетами в
-   * сводку не входят — они не меняют капитал.
-   */
   async getSummary(userId: string): Promise<UserSummary> {
     const { rows } = await pool.query<{
       income: string;
@@ -192,12 +150,6 @@ export class UsersRepository {
     };
   }
 
-  /**
-   * Ответ главной за один round-trip (порт get_user_summary, get_onboarding_state,
-   * _reports.getSummary и клиентских агрегатов карточек в один CTE-запрос).
-   * Строка users гарантирована middleware'ом (401 до запроса); если строки нет —
-   * вернётся null и сервис отдаст 404 (токен от удалённого аккаунта).
-   */
   async getHomeBootstrap(userId: string): Promise<HomeBootstrap | null> {
     const { rows } = await pool.query<HomeBootstrapRow>(
       `WITH
@@ -262,8 +214,7 @@ export class UsersRepository {
       lastReport: row.last_report_id
         ? {
             id: row.last_report_id,
-            // name NOT NULL в схеме — null здесь невозможен, но LEFT JOIN
-            // типизации не доверяем, отдаём пустое имя вместо падения.
+
             name: row.last_report_name ?? '',
             period_start: row.last_report_start,
             period_end: row.last_report_end,

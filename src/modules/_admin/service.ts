@@ -25,16 +25,8 @@ import type {
   StorageBreakdown,
 } from './types.js';
 
-/**
- * Бизнес-логика админ-панели — тонкий слой над запросами репозитория.
- *
- * Права целиком закрывает middleware requireAdmin (роль берётся из JWT-claims,
- * которые подписывает _auth), поэтому сервис только пробрасывает данные —
- * но остаётся точкой, куда ляжет будущая логика (например, агрегация или
- * кэш тяжёлых счётчиков).
- */
 export class AdminService {
-  /** Белые списки параметров графиков — вне списка бросаем 400. */
+
   private static readonly CHART_METRICS: AdminChartMetric[] = ['count', 'unique_users'];
   private static readonly OPERATIONS_AGGREGATIONS: OperationsDynamicsAggregation[] = [
     'D',
@@ -47,10 +39,6 @@ export class AdminService {
     return adminRepository.getStats();
   }
 
-  /**
-   * GET /admin/dashboard/operations-dynamics — query:
-   * audience=all|users, metric=count|unique_users, aggregation=D|M|Y.
-   */
   async getOperationsDynamics(query: Record<string, unknown>): Promise<AdminOperationsDynamics> {
     return adminRepository.getOperationsDynamics(
       this.parseAudience(query.audience),
@@ -59,10 +47,6 @@ export class AdminService {
     );
   }
 
-  /**
-   * GET /admin/logs/dynamics — query:
-   * audience=all|users, metric=count|unique_users, bucket=hour|day.
-   */
   async getLogsDynamics(query: Record<string, unknown>): Promise<AdminLogsDynamics> {
     return adminRepository.getLogsDynamics(
       this.parseAudience(query.audience),
@@ -71,10 +55,6 @@ export class AdminService {
     );
   }
 
-  /**
-   * Разбор фильтра аудитории по роли: пусто/all — без фильтра, users — только
-   * роль 'user'. Мусорное значение = 400 (в репозиторий уходит только 'all'|'users').
-   */
   private parseAudience(value: unknown): LogsAudience {
     const raw = typeof value === 'string' ? value.trim() : '';
     if (raw === '' || raw === 'all') {
@@ -86,7 +66,6 @@ export class AdminService {
     throw new AppError('Недопустимый фильтр audience', 400);
   }
 
-  /** Метрика графика: пусто/count — количество, unique_users — count(distinct user_id). */
   private parseMetric(value: unknown): AdminChartMetric {
     const raw = typeof value === 'string' ? value.trim() : '';
     if (raw === '' || raw === 'count') {
@@ -98,7 +77,6 @@ export class AdminService {
     throw new AppError('Недопустимый фильтр metric', 400);
   }
 
-  /** Гранулярность операций: пусто/D — день, M — месяц, Y — год. */
   private parseOperationsAggregation(value: unknown): OperationsDynamicsAggregation {
     const raw = typeof value === 'string' ? value.trim().toUpperCase() : '';
     if (raw === '') {
@@ -110,7 +88,6 @@ export class AdminService {
     throw new AppError('Недопустимая гранулярность aggregation', 400);
   }
 
-  /** Гранулярность логов: пусто/hour — МСК-час, day — МСК-сутки. */
   private parseLogsBucket(value: unknown): LogsDynamicsBucket {
     const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
     if (raw === '') {
@@ -126,14 +103,6 @@ export class AdminService {
     return adminRepository.getStorageBreakdown();
   }
 
-  /**
-   * Удаление пользователя администратором (п.7 сценарий): revoked →
-   * обезличивание данных → erased с form_id='admin'. Своё удаление запрещено
-   * (400), чтобы админ не остался без доступа к панели. Physical delete строки
-   * users невозможен: consent_log обязан пережить аккаунт (хранение >= 3 лет,
-   * FK без каскада), поэтому вместо него — обезличивание. Уже обезличенный
-   * «надгробный» аккаунт считается несуществующим (404) и скрыт из списков.
-   */
   async deleteUser(
     currentUserId: string,
     targetUserId: unknown,
@@ -154,14 +123,10 @@ export class AdminService {
     return adminRepository.listUsers();
   }
 
-  /** GET /admin/users/options — лёгкие id+login для селектов (без агрегатов). */
   async getUserOptions(): Promise<AdminUserOption[]> {
     return adminRepository.listUserOptions();
   }
 
-  // ── Логи запросов ─────────────────────────────────────────────────────────
-
-  /** Белые списки значений фильтров — вне списка бросаем 400. */
   private static readonly LOG_STATUS_FILTERS: LogsStatusFilter[] = [
     'all',
     'info',
@@ -173,14 +138,8 @@ export class AdminService {
   private static readonly LOG_SORT_FIELDS: LogsSortField[] = ['date', 'duration'];
   private static readonly LOG_SORT_ORDERS: LogsSortOrder[] = ['asc', 'desc'];
 
-  /** Значение userId = «только запросы без авторизации» (остальное — uuid пользователя). */
   private static readonly LOG_USER_ANONYMOUS = 'anonymous';
 
-  /**
-   * GET /admin/logs — query: status=all|info|warning|error,
-   * userId=<uuid>|anonymous, methods=GET,POST (пусто — все методы), page,
-   * limit, sort=date|duration, order=asc|desc.
-   */
   async listLogs(query: Record<string, unknown>): Promise<AdminLogsPage> {
     const status = (query.status ?? 'all') as string;
     if (!AdminService.LOG_STATUS_FILTERS.includes(status as LogsStatusFilter)) {
@@ -213,10 +172,6 @@ export class AdminService {
     );
   }
 
-  /**
-   * Разбор фильтра по HTTP-методам: query `methods=GET,POST` (регистр не
-   * важен). Пусто — без фильтра; значение вне белого списка = 400.
-   */
   private parseLogsMethods(value: unknown): LogsMethod[] {
     const raw = typeof value === 'string' ? value.trim() : '';
     if (raw === '') {
@@ -232,11 +187,6 @@ export class AdminService {
     return [...new Set(methods)] as LogsMethod[];
   }
 
-  /**
-   * Разбор фильтра по автору: пусто/all — без фильтра, 'anonymous' — запросы
-   * без авторизации, иначе — uuid пользователя. Мусорный uuid = 400, чтобы в
-   * репозиторий не уходило значение, которое никогда ничего не найдёт.
-   */
   private parseLogsUserFilter(value: unknown): LogsUserFilter {
     const raw = typeof value === 'string' ? value.trim() : '';
     if (raw === '' || raw === 'all') {
@@ -251,7 +201,6 @@ export class AdminService {
     return { kind: 'user', userId: raw };
   }
 
-  /** GET /admin/logs/metrics — query: period=24h|7d|30d|all (по умолчанию 7d). */
   async getLogsMetrics(query: Record<string, unknown>): Promise<AdminLogsMetrics> {
     const period = (query.period ?? '7d') as string;
     if (!AdminService.LOG_PERIODS.includes(period as LogsPeriod)) {

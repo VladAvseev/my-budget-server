@@ -1,16 +1,11 @@
 import { categoriesService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP-слой категорий. Все маршруты закрыты `authenticate` в router.ts,
- * поэтому `req.user.id` здесь гарантированно есть.
- * Ответы — в обёртке `{ data }`, как ожидает клиентский http-слой.
- */
 export class CategoriesController {
-  /** GET /categories?type={income|expense|savings} → 200: CategoryDto[]. */
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      // express по умолчанию отдаёт '' для «?type=» — считаем это «без фильтра».
+
       const type =
         typeof req.query.type === 'string' && req.query.type ? req.query.type : undefined;
       const categories = await categoriesService.list(req.user!.id, type);
@@ -20,7 +15,6 @@ export class CategoriesController {
     }
   }
 
-  /** POST /categories — body: { type, name, color? } → 201 + Location. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const category = await categoriesService.create(req.user!.id, req.body ?? {});
@@ -30,7 +24,6 @@ export class CategoriesController {
     }
   }
 
-  /** PATCH /categories/:id — body: { name?, color? } → 200: обновлённая категория. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const category = await categoriesService.update(req.user!.id, req.params.id, req.body ?? {});
@@ -40,7 +33,6 @@ export class CategoriesController {
     }
   }
 
-  /** DELETE /categories/:id → 204, 404 если категории нет или она чужая. */
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await categoriesService.remove(req.user!.id, req.params.id);

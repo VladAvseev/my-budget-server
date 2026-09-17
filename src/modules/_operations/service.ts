@@ -24,26 +24,13 @@ import type {
   UpdateOperationInput,
 } from './types.js';
 
-/**
- * Бизнес-логика операций: выборки по отчёту/набору отчётов, переводы,
- * создание, обновление и удаление.
- *
- * Проверка «отчёт свой» выполняется перед каждым чтением/записью операций
- * отчёта; сама операция всегда пишется с user_id из токена и удаляется/
- * обновляется только своего user_id.
- */
 export class OperationsService {
-  /**
-   * GET /operations — два режима:
-   *  1. ?reportId=&type=  → операции одного отчёта; type допускает
-   *     несколько типов через запятую;
-   *  2. ?reportIds=a,b,c  → сводка по набору отчётов для overview.
-   */
+
   async list(
     userId: string,
     query: Record<string, unknown>,
   ): Promise<OperationDto[] | OverviewOperationDto[]> {
-    // Проверяем явно переданный фильтр и в режиме сводки по нескольким отчётам.
+
     let types: OperationType[] | undefined;
     if (query.type !== undefined) {
       if (typeof query.type !== 'string' || query.type === '') {
@@ -66,10 +53,6 @@ export class OperationsService {
     return rows.map(toOperationDto);
   }
 
-  /**
-   * Режим ?reportIds=: csv из query; не-uuid токены отбрасываем (они всё
-   * равно ничего не вернули бы из-за user_id-фильтра).
-   */
   private async listByReports(raw: string, userId: string): Promise<OverviewOperationDto[]> {
     const reportIds = raw
       .split(',')
@@ -78,7 +61,6 @@ export class OperationsService {
     return operationsRepository.listByReports(reportIds, userId);
   }
 
-  /** GET /operations/category-summary?reportIds=a,b,c: серверная сводка по категориям. */
   async getCategorySummary(
     userId: string,
     query: Record<string, unknown>,
@@ -93,7 +75,6 @@ export class OperationsService {
     return operationsRepository.categorySummary(reportIds, userId);
   }
 
-  /** POST /operations — поля операции и привязка к счетам. */
   async create(userId: string, body: Record<string, unknown>): Promise<OperationDto> {
     return withAccountTransaction(userId, async (client) => {
       const reportId = requireUuid(body.reportId, 'Некорректный идентификатор отчёта');
@@ -102,7 +83,7 @@ export class OperationsService {
         OPERATION_TYPES,
         'Некорректный тип операции',
       );
-      // Дефолт применяется только при создании и только к отсутствующему полю.
+
       const accountId =
         type !== 'transfer' && body.account_id === undefined
           ? await requirePrimaryAccount(client, userId)
@@ -115,7 +96,7 @@ export class OperationsService {
       const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
       const description = optionalStringOrNull(body.description, 'Некорректное описание');
       const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
-      // У перевода категории нет независимо от содержимого запроса.
+
       const categoryId =
         type === 'transfer' ? null : await this.resolveCategoryId(body.categoryId, userId, client);
 
@@ -129,7 +110,6 @@ export class OperationsService {
     });
   }
 
-  /** PATCH /operations/:id — отсутствующие поля сохраняют текущие значения. */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<OperationDto> {
     return withAccountTransaction(userId, async (client) => {
       const operationId = requireUuid(id);
@@ -188,7 +168,6 @@ export class OperationsService {
     });
   }
 
-  /** Единая проверка и нормализация выбранных счетов для создания и обновления. */
   private async resolveAccounts(
     client: PoolClient,
     userId: string,
@@ -229,7 +208,6 @@ export class OperationsService {
     return accounts;
   }
 
-  /** DELETE /operations/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
     return withAccountTransaction(userId, async (client) => {
       const operationId = requireUuid(id);
@@ -252,7 +230,6 @@ export class OperationsService {
     return row;
   }
 
-  /** Категория: null допустим (без категории), иначе — своя, иначе 400. */
   private async resolveCategoryId(
     value: unknown,
     userId: string,
@@ -263,13 +240,12 @@ export class OperationsService {
     }
     const categoryId = requireUuid(value, 'Некорректный идентификатор категории');
     if (!(await operationsRepository.isCategoryAllowed(client, userId, categoryId))) {
-      // Чужую категорию не подводим: отвечаем явной ошибкой той же формы.
+
       throw new AppError('Категория не найдена', 400);
     }
     return categoryId;
   }
 
-  /** 404 «Отчёт не найден» и для чужого отчёта — не подсказываем о существовании. */
   private async assertReport(reportId: string, userId: string, client?: PoolClient): Promise<void> {
     if (!(await operationsRepository.isReportOwned(reportId, userId, client))) {
       throw new AppError('Отчёт не найден', 404);

@@ -1,24 +1,7 @@
--- Инкрементальная миграция 2026-09-16: чинка колонок request_logs после
--- ошибочного переименования в коммите «миграция базы данных» (9573975).
---
--- Что случилось: db/schema.sql и db/dev/seed.sql какое-то время создавали
--- request_logs с колонками status_code/error_text, а весь живой код
--- (INSERT в requestLoggingMiddleware, SELECT'ы метрик/логов/динамики в
--- adminRepository) и все прод-миграции используют status/error. На проде
--- таблица правильная (собрана миграциями), поэтому там всё работает;
--- ломались только свежие БД из schema.sql/seed.sql: вставка логов падала
--- fire-and-forget (таблица оставалась пустой), а GET /admin/logs,
--- /admin/logs/metrics и /admin/logs/dynamics отвечали 500
--- («Внутренняя ошибка сервера», детали только в stderr).
---
--- Применение — см. server/AGENTS.md:
---   docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-16-request-logs-fix-columns.sql
---
--- Идемпотентно и безопасно на проде: на правильной таблице оба RENAME-блока,
--- смена типа и пересоздание индексов — no-op (проверки через
--- information_schema/pg_class). Данных не теряем: только переименования.
+-- Чинит колонки request_logs: status_code → status, error_text → error, тип — smallint.
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-16-request-logs-fix-columns.sql. Идемпотентно, без потери данных.
 
--- 1. status_code -> status (код ждёт именно status: middleware + метрики).
+-- 1. status_code -> status.
 DO $$
 BEGIN
   IF EXISTS (
@@ -52,9 +35,7 @@ BEGIN
 END;
 $$;
 
--- 3. Тип status к прод-канону smallint (только если сейчас integer;
--- на проде уже smallint — блок ничего не делает; значения статусов
--- 100–599 в smallint влезают с запасом).
+-- 3. Тип status — smallint (только если сейчас integer).
 DO $$
 BEGIN
   IF EXISTS (

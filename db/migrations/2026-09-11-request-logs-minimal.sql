@@ -1,21 +1,8 @@
--- Инкрементальная миграция 2026-09-11 (5): request_logs хранит только нужное.
---
--- Из логов убираются параметры запроса (query) и User-Agent: первое светит
--- данные пользователей в БД, второе нигде не отображалось. Текст ошибки для
--- неудачных ответов остаётся — его показывает раскрытие строки в админке.
--- Вместе с колонками удаляются и накопленные в них значения.
---
--- Применение — см. server/AGENTS.md:
---   docker compose exec -T db psql -U mybudget -d mybudget -f - \
---     < db/migrations/2026-09-11-request-logs-minimal.sql
---
--- Идемпотентно: можно выполнять повторно и поверх уже обновлённой базы.
--- VACUUM нельзя запускать внутри транзакции, поэтому он идёт последним отдельно.
+-- Удаляет колонки query и user_agent из request_logs.
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-11-request-logs-minimal.sql. Идемпотентно; VACUUM последним отдельно.
 
 alter table public.request_logs drop column if exists query;
 alter table public.request_logs drop column if exists user_agent;
 
--- Drop column оставляет место в файле таблицы занятым — переписываем её,
--- возвращая диск (на время операции таблица эксклюзивно блокируется, логи на
--- этот момент перестают писаться: окно — секунды на объёме ~30 дней).
+-- Переписывает таблицу для возврата диска; на время операции логи не пишутся.
 vacuum full public.request_logs;

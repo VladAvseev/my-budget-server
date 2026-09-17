@@ -1,15 +1,8 @@
 import { operationsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP-слой операций. Маршруты закрыты `authenticate` в router.ts —
- * id пользователя берётся из проверенного JWT (req.user.id).
- */
 export class OperationsController {
-  /**
-   * GET /operations?reportId={id}&type={type} — операции отчёта по типу;
-   * GET /operations?reportIds={id1,id2,...} — сводка по набору отчётов.
-   */
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const operations = await operationsService.list(req.user!.id, { ...req.query });
@@ -19,7 +12,6 @@ export class OperationsController {
     }
   }
 
-  /** GET /operations/category-summary?reportIds= → 200: сводка по категориям. */
   async getCategorySummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await operationsService.getCategorySummary(req.user!.id, { ...req.query });
@@ -29,7 +21,6 @@ export class OperationsController {
     }
   }
 
-  /** POST /operations — поля операции и привязка к счетам → 201. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const operation = await operationsService.create(req.user!.id, req.body ?? {});
@@ -39,7 +30,6 @@ export class OperationsController {
     }
   }
 
-  /** PATCH /operations/:id → 200: обновлённая операция. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const operation = await operationsService.update(req.user!.id, req.params.id, req.body ?? {});
@@ -49,7 +39,6 @@ export class OperationsController {
     }
   }
 
-  /** DELETE /operations/:id → 204/404. */
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await operationsService.remove(req.user!.id, req.params.id);

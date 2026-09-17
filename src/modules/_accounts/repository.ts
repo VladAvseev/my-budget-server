@@ -3,7 +3,6 @@ import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { PoolClient } from 'pg';
 import type { AccountChanges, AccountDto, AccountRow } from './types.js';
 
-// Независимые суммы ролей: даже перевод самому себе даёт нулевую дельту.
 const BALANCE = `a.initial_balance + coalesce((
   SELECT sum(
     CASE WHEN o.account_id = a.id AND o.type = 'income' THEN o.amount

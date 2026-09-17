@@ -22,20 +22,8 @@ import type {
   StorageBreakdown,
 } from './types.js';
 
-/**
- * Слой доступа к данным админ-панели.
- *
- * Особенности:
- *   * права проверяет middleware requireAdmin (роль из JWT), а не SQL-функции;
- *   * все данные — из единой таблицы public.users (user_id → id);
- *   * размер БД считаем от current_database(): сервер работает с одной базой,
- *     суммирование по всем базам кластера бессмысленно.
- */
 export class AdminRepository {
-  /**
-   * Сводка дашборда одним запросом: отчёт собирается jsonb_build_object'ом,
-   * ровно в той форме, которую ожидает клиент (TS-тип описывает результат).
-   */
+
   async getStats(): Promise<AdminDashboardStats> {
     const { rows } = await pool.query<{ data: AdminDashboardStats }>(
       `SELECT jsonb_build_object(
@@ -93,22 +81,10 @@ export class AdminRepository {
          )
        ) AS data`,
     );
-    // jsonb парсится драйвером в объект; счётчики bigint внутри jsonb — числа.
+
     return rows[0].data;
   }
 
-  /**
-   * Динамика операций по выбранной гранулярности.
-   * created_at переводим в московское время до группировки — периоды графика
-   * считаются по МСК. Для metric=unique_users считаем count(distinct user_id)
-   * уже на выбранной гранулярности: уникальных пользователей нельзя корректно
-   * агрегировать суммированием более мелких периодов на клиенте.
-   *
-   * Аудитория: 'all' — все операции (и пользователей, и админов); 'users' —
-   * только тех, у кого роль 'user'. Операции привязаны к создателю через
-   * operations.user_id, роль берём JOIN'ом к users (JOIN inner намеренно
-   * отсекает и 'admin', и удалённых авторов).
-   */
   async getOperationsDynamics(
     audience: LogsAudience = 'all',
     metric: AdminChartMetric = 'count',
@@ -153,16 +129,6 @@ export class AdminRepository {
     };
   }
 
-  /**
-   * Динамика количества логов по МСК-часам/суткам с фильтром по аудитории и
-   * метрике. Для unique_users distinct считается на выбранном бакете, поэтому
-   * сервер обязан группировать сам — клиент не должен переводить часы в сутки
-   * суммированием уникальных пользователей.
-   *
-   * Возвращаем только непустые бакеты (клиент достраивает нули на пустые
-   * интервалы). Аудитория 'users' — строки с user_role = 'user': запросы
-   * админов и без авторизации (NULL) отсекаются.
-   */
   async getLogsDynamics(
     audience: LogsAudience,
     metric: AdminChartMetric = 'count',
@@ -206,12 +172,6 @@ export class AdminRepository {
     };
   }
 
-  /**
-   * Разбивка хранения: общий размер текущей БД + размер каждой базовой таблицы
-   * схемы public (pg_total_relation_size — данные + индексы + TOAST), по
-   * убыванию веса. «Остальные данные» (служебное пространство СУБД) — разница
-   * databaseBytes и суммы таблиц, считает клиент.
-   */
   async getStorageBreakdown(): Promise<StorageBreakdown> {
     const [databaseResult, tablesResult] = await Promise.all([
       pool.query<{ database_bytes: string }>(
@@ -236,13 +196,6 @@ export class AdminRepository {
     };
   }
 
-  /**
-   * Все пользователи со статистикой количества
-   * сущностей (LEFT JOIN счётчиков, чтобы нули не терялись). Обезличенные
-   * «надгробия» (см. usersRepository.anonymize) из списка исключены: для
-   * админки удалённый аккаунт перестаёт существовать, хотя строка users
-   * остаётся ради журнала consent_log.
-   */
   async listUsers(): Promise<AdminUserRow[]> {
     const { rows } = await pool.query<{ data: AdminUserRow[] | null }>(
       `SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -289,11 +242,6 @@ export class AdminRepository {
     return rows[0].data ?? [];
   }
 
-  /**
-   * Лёгкий список пользователей для селектов (id + login) без агрегатов и
-   * JOIN'ов — только отсортированный по логину обход public.users.
-   * «Надгробия» обезличенных аккаунтов не предлагаются (см. listUsers).
-   */
   async listUserOptions(): Promise<AdminUserOption[]> {
     const { rows } = await pool.query<{ user_id: string; login: string }>(
       `SELECT id AS user_id, login FROM public.users
@@ -303,19 +251,6 @@ export class AdminRepository {
     return rows.map((row) => ({ userId: row.user_id, login: row.login }));
   }
 
-  // ── Логи запросов (public.request_logs) ────────────────────────────────────
-
-  /**
-   * Страница логов для админки. Фильтр по статусу — whitelist из
-   * LogsStatusFilter, мапится в условие по классу статуса (info: < 400,
-   * warning: 400–499, error: >= 500); фильтр по автору — LogsUserFilter
-   * (все / без авторизации / конкретный пользователь); фильтр по методам —
-   * whitelist LogsMethod (пустой список — без фильтра). Сортировка —
-   * whitelist LogsSortField/LogsSortOrder (колонка подставляется из маппинга,
-   * не из строки клиента), tie-breaker id DESC для стабильной пагинации при
-   * одинаковых duration_ms. Логин автора тянется LEFT JOIN по public.users:
-   * у строк без авторизации (user_id is null) он остаётся null.
-   */
   async getLogs(
     filter: LogsStatusFilter,
     user: LogsUserFilter,
@@ -396,12 +331,6 @@ export class AdminRepository {
     };
   }
 
-  /**
-   * Метрики по логам за период: счётчики по классам статуса (info/warning/
-   * error — только 5xx), среднее/p95, топ-10 эндпоинтов. Период мапится в
-   * PostgreSQL-интервал через whitelist — никакой строки от клиента в SQL
-   * не подставляется.
-   */
   async getLogsMetrics(period: LogsPeriod): Promise<AdminLogsMetrics> {
     const intervalMap: Record<Exclude<LogsPeriod, 'all'>, string> = {
       '24h': '24 hours',

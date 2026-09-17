@@ -16,7 +16,6 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   process.stdout.write(`Получен ${signal}, остановка сервера...\n`);
 
-  // Не даём зависнуть навсегда: жёсткий выход через 10 секунд.
   const forceExit = setTimeout(() => {
     process.stderr.write('Graceful shutdown не завершился, принудительный выход\n');
     process.exit(1);

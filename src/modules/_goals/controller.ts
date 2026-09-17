@@ -1,11 +1,8 @@
 import { goalsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP-слой целей накоплений. Маршруты закрыты `authenticate` в router.ts.
- */
 export class GoalsController {
-  /** GET /goals → 200: список целей пользователя. */
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const goals = await goalsService.list(req.user!.id);
@@ -15,7 +12,6 @@ export class GoalsController {
     }
   }
 
-  /** POST /goals — body: { accountId, amount, targetDate? } → 201/400/409. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const goal = await goalsService.create(req.user!.id, req.body ?? {});
@@ -25,7 +21,6 @@ export class GoalsController {
     }
   }
 
-  /** PATCH /goals/:id — body: { amount?, targetDate? } → 200: обновлённая цель. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const goal = await goalsService.update(req.user!.id, req.params.id, req.body ?? {});
@@ -35,7 +30,6 @@ export class GoalsController {
     }
   }
 
-  /** DELETE /goals/:id → 204/404. */
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await goalsService.remove(req.user!.id, req.params.id);

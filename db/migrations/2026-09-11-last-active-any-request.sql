@@ -1,18 +1,5 @@
--- Инкрементальная миграция 2026-09-11 (3): отметка активности на любом авторизованном запросе.
---
--- Раньше last_active_at двигал только триггер на вставку операции, поэтому
--- «активный пользователь» означало «добавил операцию», а не «заходил в
--- приложение». Теперь активность отмечает сам API-сервер (middlewares/
--- authMiddleware.ts) при каждом запросе с валидным access-токеном, а триггер
--- на operations убирается: он затирает last_active_at при любой пакетной
--- загрузке исторических операций (именно так и появились «одинаковые даты
--- активности» после переноса базы).
---
--- Применение — см. server/AGENTS.md:
---   docker compose exec -T db psql -U mybudget -d mybudget -f - \
---     < db/migrations/2026-09-11-last-active-any-request.sql
---
--- Идемпотентно: можно выполнять повторно и поверх уже обновлённой базы.
+-- Активность отмечает API-сервер; триггер на operations удаляется.
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-11-last-active-any-request.sql. Идемпотентно.
 
 drop trigger if exists trg_operations_last_active on public.operations;
 drop function if exists public.touch_last_active();

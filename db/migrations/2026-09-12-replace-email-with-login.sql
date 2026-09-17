@@ -1,23 +1,5 @@
--- Инкрементальная миграция 2026-09-12: замена email на login.
---
--- Вход по email убран из системы (письма не рассылались, восстановление пароля
--- нет). Идентификатором становится login (citext, unique). Существующим
--- пользователям логин автогенерируется из локальной части email (до '@'):
---   * приводится к нижнему регистру, символы вне [a-zа-яё0-9_.-] вырезаются,
---     длина ограничивается 20 символами (валидация входа их бы не пропустила);
---   * слишком короткие (<3) дополняются первыми hex-символами md5 от id —
---     детерминированно, при повторном прогоне тот же результат;
---   * коллизии получают суффикс _2, _3, ... (первый по дате регистрации —
---     без суффикса). Итоговые логины видны в админке (вкладка «Пользователи»).
--- Session-идентификатор — users.id (JWT/refresh_tokens), поэтому активные
--- сессии миграция не сбрасывает. Колонка email удаляется вместе со старым
--- уникальным индексом.
---
--- Применение — см. server/AGENTS.md:
---   docker compose exec db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-12-replace-email-with-login.sql
---
--- Идемпотентно: можно выполнять повторно (email уже удалён — backfill
--- не находит строк с login is null и проходит мимо).
+-- Вход по login (citext, unique) вместо email.
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-12-replace-email-with-login.sql. Идемпотентно.
 
 alter table public.users add column if not exists login citext;
 
@@ -59,8 +41,7 @@ begin
 end
 $$;
 
--- Констрейнты пересоздаются через drop-if-exists: повторный запуск не падает,
--- а на half-migrated базе догоняет состояние схемы.
+-- Повторный запуск безопасен (drop-if-exists).
 alter table public.users alter column login set not null;
 alter table public.users drop constraint if exists users_login_key;
 alter table public.users add constraint users_login_key unique (login);

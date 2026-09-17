@@ -3,14 +3,6 @@ import { pool } from '@/db/pool.js';
 import { toIsoString } from '@/shared/serialize.js';
 import type { CategoryDto, CategoryRow, CategoryType, UpdateCategoryInput } from './types.js';
 
-/**
- * Слой доступа к данным категорий.
- *
- * Принадлежность строк пользователю обеспечивает сам сервер:
- * каждый SELECT/UPDATE/DELETE явно фильтруется по user_id из проверенного JWT.
- */
-
-/** Строка БД → DTO ответа. */
 export function toCategoryDto(row: CategoryRow): CategoryDto {
   return {
     id: row.id,
@@ -24,10 +16,7 @@ export function toCategoryDto(row: CategoryRow): CategoryDto {
 }
 
 export class CategoriesRepository {
-  /**
-   * Категории пользователя, опционально по типу, `order by created_at`
-   * (старые сверху — порядок, к которому привык клиент).
-   */
+
   async list(userId: string, type?: CategoryType): Promise<CategoryRow[]> {
     const { rows } = type
       ? await pool.query<CategoryRow>(
@@ -45,7 +34,6 @@ export class CategoriesRepository {
     return rows;
   }
 
-  /** Создание категории: user_id берётся из проверенного токена. */
   async create(
     userId: string,
     type: CategoryType,
@@ -61,17 +49,12 @@ export class CategoriesRepository {
     return rows[0];
   }
 
-  /**
-   * Обновление только своих категорий: `WHERE id = $id AND user_id = $userId`.
-   * Пустой набор полей (после фильтрации в сервисе) сюда не доходит.
-   */
   async update(
     id: string,
     userId: string,
     input: UpdateCategoryInput,
   ): Promise<CategoryRow | null> {
-    // Динамический SET собирается из whitelist-полей — имена колонок никогда
-    // не приходят из запроса, значения всегда уходят параметрами $n.
+
     const sets: string[] = [];
     const values: unknown[] = [];
 
@@ -85,7 +68,7 @@ export class CategoriesRepository {
     }
 
     if (sets.length === 0) {
-      // Нечего обновлять — вернём текущую строку (PATCH идемпотентен).
+
       const { rows } = await pool.query<CategoryRow>(
         'SELECT * FROM public.categories WHERE id = $1 AND user_id = $2',
         [id, userId],
@@ -106,7 +89,6 @@ export class CategoriesRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление категории с ownership-фильтром; rowCount=0 → чужой/несуществующий id. */
   async remove(id: string, userId: string): Promise<boolean> {
     return withAccountTransaction(userId, async (client) => {
       const { rowCount } = await client.query(

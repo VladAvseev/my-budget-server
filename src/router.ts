@@ -12,11 +12,6 @@ import { usersRouter } from '@/modules/_users/router.js';
 
 export const apiRouter = Router();
 
-// Публичного /health в API больше нет: эндпоинт только информировал сканеры
-// о состоянии сервера и нагружал пул БД проверкой на каждый запрос.
-
-// /legal — публичная выдача версий юридических документов (без токена:
-// текст согласия нужен и на форме регистрации незалогиненным).
 apiRouter.use('/legal', legalRouter);
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/users', usersRouter);

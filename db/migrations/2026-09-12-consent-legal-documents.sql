@@ -1,35 +1,6 @@
--- Инкрементальная миграция 2026-09-12: юридически значимые согласия (152-ФЗ).
---
--- Создаёт два объекта схемы (полное описание — в db/schema.sql):
---   * public.legal_documents — версионируемые тексты документов (Markdown +
---     sha256), ровно одна is_current на document_type (частичный unique-индекс);
---   * public.consent_log — append-only журнал согласий/отзывов/удалений данных.
---
--- ПЕРЕСМОТР ПОЛИТИКИ ХРАНЕНИЯ IP. Миграция 2026-09-12-drop-ip-columns.sql
--- убрала IP из request_logs и refresh_tokens (тогда это были метаданные
--- логирования/сессий). Здесь IP и User-Agent снова пишутся в БД, но ТОЛЬКО в
--- consent_log и ТОЛЬКО как доказательство юридически значимого события
--- (ст. 9 152-ФЗ требует подтверждать получение согласия). Значения лежат
--- зашифрованными pgp_sym_encrypt(..., armor), ключ — env CONSENT_ENC_KEY api-
--- контейнера и скрипта публикации. Приложение их не читает; расшифровка для
--- разбора споров выполняется вручную:
---   SET key = '...';  -- значение CONSENT_ENC_KEY
---   SELECT created_at, user_id, form_id, action, document_type, document_version,
---          convert_from(pgp_sym_decrypt(dearmor(ip_address), current_setting('key')), 'UTF8') AS ip,
---          convert_from(pgp_sym_decrypt(dearmor(user_agent),  current_setting('key')), 'UTF8') AS ua
---     FROM public.consent_log
---    ORDER BY id DESC LIMIT 20;
---
--- consent_log.user_id — FK БЕЗ on delete cascade: journal обязан пережить
--- пользователя (хранение не менее 3 лет), поэтому physical delete аккаунта на
--- уровне БД невозможен; приложение вместо него выполняет обезличивание
--- (см. _consent/service.revokeAndErase).
---
--- Документ v1 публикуется после применения миграции (см. server/AGENTS.md):
---   npm run legal:publish -- --type privacy_policy --file <файл.md>
--- На проде: docker compose exec api node dist/scripts/publish-legal-document.js ...
---
--- Идемпотентно: можно выполнять повторно и поверх уже обновлённой базы.
+-- Юридические документы (legal_documents) и журнал согласий (consent_log).
+-- user_id — FK без каскада (удаление — обезличивание); ip/ua хранятся шифрованно (ключ CONSENT_ENC_KEY).
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-12-consent-legal-documents.sql, затем npm run legal:publish. Идемпотентно.
 
 begin;
 

@@ -1,13 +1,8 @@
 import { reportsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
-/**
- * HTTP-слой отчётов и вложенных ресурсов (summary, category-limits).
- * Маршруты закрыты `authenticate` в router.ts, поэтому
- * id пользователя берётся из проверенного JWT.
- */
 export class ReportsController {
-  /** GET /reports → 200: список отчётов пользователя. */
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await reportsService.list(req.user!.id);
@@ -17,7 +12,6 @@ export class ReportsController {
     }
   }
 
-  /** POST /reports — body: { name, code?, periodStart?, periodEnd? } → 201 + Location. */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const report = await reportsService.create(req.user!.id, req.body ?? {});
@@ -27,7 +21,6 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/:id → 200/404: один отчёт. */
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
       const report = await reportsService.getById(req.user!.id, req.params.id);
@@ -37,7 +30,6 @@ export class ReportsController {
     }
   }
 
-  /** PATCH /reports/:id → 200: переименование и правка периода. */
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const report = await reportsService.update(req.user!.id, req.params.id, req.body ?? {});
@@ -47,7 +39,6 @@ export class ReportsController {
     }
   }
 
-  /** DELETE /reports/:id → 204/404. */
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await reportsService.remove(req.user!.id, req.params.id);
@@ -57,7 +48,6 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/:id/summary → 200: { income, expense, savings }. */
   async getSummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await reportsService.getSummary(req.user!.id, req.params.id);
@@ -67,7 +57,6 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/capital-dynamics → 200: [{ month, delta }] по периодам. */
   async getCapitalDynamics(req: Request, res: Response, next: NextFunction) {
     try {
       const months = await reportsService.getCapitalDynamics(req.user!.id);
@@ -77,7 +66,6 @@ export class ReportsController {
     }
   }
 
-  /** GET /reports/:id/category-limits → 200: лимиты отчёта. */
   async getCategoryLimits(req: Request, res: Response, next: NextFunction) {
     try {
       const limits = await reportsService.getCategoryLimits(req.user!.id, req.params.id);
@@ -87,7 +75,6 @@ export class ReportsController {
     }
   }
 
-  /** PUT /reports/:id/category-limits — body: { limits: [{categoryId, amount}] } → 200: новый список. */
   async setCategoryLimits(req: Request, res: Response, next: NextFunction) {
     try {
       const limits = await reportsService.setCategoryLimits(

@@ -2,7 +2,6 @@ import type { PoolClient } from 'pg';
 import { AppError } from './appError.js';
 import { withTransaction } from './transaction.js';
 
-/** Общий порядок записи финансов: сначала пользователь, затем счета/операции. */
 export async function lockActiveUser(client: PoolClient, userId: string): Promise<void> {
   const { rows } = await client.query<{ active: boolean }>(
     `SELECT login !~ '^deleted-[0-9a-f-]{36}$' AS active
@@ -14,7 +13,6 @@ export async function lockActiveUser(client: PoolClient, userId: string): Promis
   }
 }
 
-/** Перехватываем только известные ограничения счетов и конфликты транзакций. */
 export async function withAccountTransaction<T>(
   userId: string,
   fn: (client: PoolClient) => Promise<T>,
@@ -62,7 +60,6 @@ export async function requirePrimaryAccount(client: PoolClient, userId: string):
   return rows[0].id;
 }
 
-/** Вызывается под блокировкой пользователя, в транзакции будущей записи. */
 export async function assertOperationAccountsOpen(
   client: PoolClient,
   accountIds: Array<string | null>,

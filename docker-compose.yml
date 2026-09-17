@@ -1,75 +1,62 @@
-# Docker стек my-budget: PostgreSQL (db) + Express API (api) + фронтенд с
-# реверс-прокси /api/ (web). Секреты лежат в .env рядом с этим файлом
-# (он в .gitignore) — в образы и в git не попадают никогда.
+# Стек: PostgreSQL (db) + Express API (api) + фронтенд с прокси /api/ (web).
+# Секреты — в .env рядом (в .gitignore), в образы и git не попадают.
 #
-# Команды на сервере (/opt/mybudget/server):
-#   docker compose up -d --build     # собрать и поднять
-#   docker compose ps                # состояние сервисов
-#   docker compose logs -f api       # логи бэкенда
-#   docker compose exec db psql -U mybudget -d mybudget   # консоль БД
+# На сервере (/opt/mybudget/server): up -d --build, ps, logs -f api,
+# exec db psql -U mybudget -d mybudget (консоль БД).
 
 name: mybudget
 
 services:
-  # ── База данных ────────────────────────────────────────────────────────────
+  # База данных
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      # ?-синтаксис: без значений в .env compose откажется стартовать
+      # Без значений в .env compose не стартует
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB не задан в server/.env}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER не задан в server/.env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в server/.env}
-    # Параметры под сервер 2 vCPU / 2 ГБ: 256 МБ общей памяти кэша,
-    # 50 соединений (приложение ходит пулом max=5 — с огромным запасом)
+    # Под сервер 2 vCPU / 2 ГБ (пул приложения max=5 — с запасом)
     command: postgres -c shared_buffers=256MB -c max_connections=50 -c effective_cache_size=768MB
     volumes:
-      # Данные живут в именованном volume и переживают пересоздание контейнера
+      # Данные переживают пересоздание контейнера
       - pgdata:/var/lib/postgresql/data
-      # schema.sql применяется автоматически при ПЕРВОМ старте (пустой volume).
-      # Последующие правки схемы — идемпотентными файлами из db/migrations/
-      # через psql (см. server/AGENTS.md) и обновлением db/schema.sql для
-      # будущих свежих установок.
+      # schema.sql — только при ПЕРВОМ старте; дальше — db/migrations через psql
+      # (см. server/AGENTS.md), schema.sql обновлять для свежих установок.
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      # api стартует только после реальной готовности postgres, а не контейнера
+      # api ждёт готовности postgres, а не контейнера
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-    # Портов на хост не публикуем: к БД есть доступ только из сети mybudget
+    # Порты не публикуем: БД доступна только из сети mybudget
 
-  # ── Express API (репозиторий server) ───────────────────────────────────────
+  # Express API
   api:
     build: .
     restart: unless-stopped
-    # DATABASE_URL/JWT_SECRET/PORT из того же .env приходят процессу env'рами
+    # DATABASE_URL/JWT_SECRET/PORT из .env
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
-    # Доступен соседям по сети (web проксирует на api:5001), наружу не торчит
+    # Соседям (web → api:5001), наружу не торчит
     expose:
       - "5001"
-    # Исходники юридических документов из репозитория (только чтение): CLI
-    # публикации читает их отсюда (server/AGENTS.md, «Легальные документы»).
-    # Канон текста — таблица legal_documents, примонтированный файл — лишь
-    # вход публикации; bind без копирования = на сервере всегда актуальный
-    # checkout develop.
+    # Исходники юрдокументов (ro): CLI публикации читает их отсюда.
+    # Канон — таблица legal_documents; bind без копирования.
     volumes:
       - ./docs/legal:/docs:ro
 
-  # ── Фронтенд (репозиторий client, клон рядом) ──────────────────────────────
+  # Фронтенд (клон client рядом): /api/ → api:5001, секретов не требует.
   web:
-    # Контекст — ../client: nginx-образ со собранной статикой,
-    # /api/ внутри него проксируется на api:5001 (см. client/docker/nginx.conf).
-    # Секретов не требует: бандл ходит в same-origin '/api/v1'.
+    # Контекст ../client; секретов нет (same-origin '/api/v1').
     build: ../client
     restart: unless-stopped
     ports:
-      # Единственная точка входа снаружи Docker: только localhost,
-      # TLS терминирует хостовый nginx (certbot) перед 127.0.0.1:8080
+      # Единственный вход снаружи: localhost; TLS — хостовый nginx
       - "127.0.0.1:8080:80"
     depends_on:
       - api

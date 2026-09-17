@@ -9,7 +9,7 @@ import { categoriesController as categories } from '../src/modules/_categories/c
 import { errorMiddleware } from '../src/middlewares/errorMiddleware.js';
 if (process.env.DATABASE_URL !== 'postgresql://postgres@127.0.0.1:55439/goals_check') throw Error('Только тестовая БД');
 const owner = (await pool.query("SELECT id FROM public.users WHERE login='goals-owner'")).rows[0].id;
-// Локальная фикстура воспроизводит текущие поля runtime, отсутствующие в старой базовой schema.sql.
+// Фикстура добавляет поля runtime, которых нет в schema.sql.
 await pool.query(`ALTER TABLE public.reports ADD COLUMN IF NOT EXISTS code text DEFAULT '', ADD COLUMN IF NOT EXISTS period_start date, ADD COLUMN IF NOT EXISTS period_end date;
 ALTER TABLE public.reports ALTER COLUMN type SET DEFAULT 'custom', ALTER COLUMN data SET DEFAULT '{}';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();

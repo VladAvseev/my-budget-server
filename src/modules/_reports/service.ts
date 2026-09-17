@@ -14,32 +14,18 @@ import type {
   ReportSummary,
 } from './types.js';
 
-/**
- * Бизнес-логика отчётов: создание/обновление, сводки и лимиты категорий.
- *
- * Текст ошибки 'Такой период уже существует' исторический — клиент показывает
- * его как есть, без маппинга.
- */
-
-/** Ошибочный ответ «нет отчёта» для чужого id — не раскрываем существование. */
 const NOT_FOUND = 'Отчёт не найден';
 
 export class ReportsService {
-  /** GET /reports: свои отчёты, новые (по периоду) сверху. */
+
   async list(userId: string): Promise<ReportDto[]> {
     const rows = await reportsRepository.list(userId);
     return rows.map(toReportDto);
   }
 
-  /**
-   * POST /reports.
-   * Body (camelCase): { name, code?, periodStart?, periodEnd? }.
-   */
   async create(userId: string, body: Record<string, unknown>): Promise<ReportDto> {
     const name = requireNonEmptyString(body.name, 'Название отчёта обязательно');
 
-    // Пустой код — «не задан»: проверка дубликата нужна только непустым,
-    // частичный unique-индекс в схеме — второй эшелон.
     const code = typeof body.code === 'string' ? body.code.trim() : '';
 
     const periodStart = optionalDateOrNull(
@@ -64,7 +50,7 @@ export class ReportsService {
       });
       return toReportDto(row);
     } catch (err) {
-      // Гонка: два параллельных create с одним кодом — индекс поймает второго.
+
       if ((err as { code?: string }).code === '23505') {
         throw new AppError('Такой период уже существует', 409);
       }
@@ -72,7 +58,6 @@ export class ReportsService {
     }
   }
 
-  /** GET /reports/:id: только свой отчёт. */
   async getById(userId: string, id: unknown): Promise<ReportDto> {
     const reportId = requireUuid(id);
     const row = await reportsRepository.getById(reportId, userId);
@@ -82,13 +67,9 @@ export class ReportsService {
     return toReportDto(row);
   }
 
-  /**
-   * PATCH /reports/:id: { name?, periodStart?, periodEnd? } (переименование
-   * и правка периода). Отсылаются только переданные поля.
-   */
   async update(userId: string, id: unknown, body: Record<string, unknown>): Promise<ReportDto> {
     const reportId = requireUuid(id);
-    // Проверяем владение до модификации.
+
     const current = await reportsRepository.getById(reportId, userId);
     if (!current) {
       throw new AppError(NOT_FOUND, 404);
@@ -118,7 +99,6 @@ export class ReportsService {
     return toReportDto(this.must(row));
   }
 
-  /** DELETE /reports/:id → 204/404. */
   async remove(userId: string, id: unknown): Promise<void> {
     const reportId = requireUuid(id);
     const removed = await reportsRepository.remove(reportId, userId);
@@ -127,19 +107,16 @@ export class ReportsService {
     }
   }
 
-  /** GET /reports/:id/summary (SummaryCards). */
   async getSummary(userId: string, id: unknown): Promise<ReportSummary> {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);
     return reportsRepository.getSummary(reportId);
   }
 
-  /** GET /reports/capital-dynamics: дельта капитала по периодам пользователя. */
   async getCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     return reportsRepository.listCapitalDynamics(userId);
   }
 
-  /** GET /reports/:id/category-limits. */
   async getCategoryLimits(userId: string, id: unknown): Promise<CategoryLimitDto[]> {
     const reportId = requireUuid(id);
     await this.assertReport(reportId, userId);
@@ -147,12 +124,6 @@ export class ReportsService {
     return rows.map(toCategoryLimitDto);
   }
 
-  /**
-   * PUT /reports/:id/category-limits: полная замена
-   * списка. Body: { limits: [{ categoryId, amount }] }.
-   * Категория лимита обязана быть своей — это проверяется явно,
-   * до входа в транзакцию.
-   */
   async setCategoryLimits(
     userId: string,
     id: unknown,
@@ -173,7 +144,6 @@ export class ReportsService {
       };
     });
 
-    // Один запрос на все id: сколько категорий оказалось «своими».
     const uniqueIds = [...new Set(limits.map((item) => item.categoryId))];
     if (uniqueIds.length > 0) {
       const owned = await reportsRepository.countOwnedCategories(userId, uniqueIds);
@@ -186,7 +156,7 @@ export class ReportsService {
       const rows = await reportsRepository.replaceCategoryLimits(reportId, userId, limits);
       return rows.map(toCategoryLimitDto);
     } catch (err) {
-      // unique(report_id, category_id): одна категория дважды в присланном списке.
+
       if ((err as { code?: string }).code === '23505') {
         throw new AppError('Одна категория не может иметь два лимита', 400);
       }
@@ -200,7 +170,6 @@ export class ReportsService {
     }
   }
 
-  /** Внутренний помощник: UPDATE после проверки владения не должен вернуть null. */
   private must<T>(row: T | null): T {
     if (!row) {
       throw new AppError(NOT_FOUND, 404);

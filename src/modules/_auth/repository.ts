@@ -3,19 +3,10 @@ import type { PoolClient } from 'pg';
 import type { SessionRow, StaleSessionRow } from './types.js';
 import type { UserRow } from '@/modules/_users/types.js';
 
-/** Сколько дней держать отозванные/истёкшие строки refresh_tokens до physical delete. */
 const STALE_SESSION_RETENTION_DAYS = 30;
 
-/**
- * Слой доступа к данным авторизации: таблицы `users` и `refresh_tokens`
- * из db/schema.sql. Вся ответственность за контроль доступа — на
- * параметризованных SQL-запросах сервера и middleware авторизации.
- */
 export class AuthRepository {
-  /**
-   * Поиск по логину. Колонка citext — поиск регистронезависимый:
-   * 'Vlada' и 'vlada' — один пользователь.
-   */
+
   async findByLogin(login: string): Promise<UserRow | null> {
     const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE login = $1', [
       login,
@@ -23,11 +14,6 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
-  /**
-   * Создание аккаунта. Дубликат логина поймается уникальным индексом (SQLSTATE 23505).
-   * client — работа в чужой транзакции (регистрация обязана атомарно вставить
-   * и строку users, и первую запись consent_log); без него — обычный pool.
-   */
   async createUser(login: string, passwordHash: string, client?: PoolClient): Promise<UserRow> {
     const { rows } = await (client ?? pool).query<UserRow>(
       `INSERT INTO public.users (login, password_hash)
@@ -38,11 +24,6 @@ export class AuthRepository {
     return rows[0];
   }
 
-  /**
-   * Регистрация refresh-токена = создание «сессии» (одна строка = одно
-   * устройство). tokenHash — sha256 от токена, сырой токен
-   * в базу не попадает никогда.
-   */
   async insertRefreshToken(
     userId: string,
     tokenHash: string,
@@ -56,12 +37,6 @@ export class AuthRepository {
     );
   }
 
-  /**
-   * Активная сессия по хэшу refresh-токена: не отозвана и не просрочена.
-   * Сразу отдаёт и пользователя — чтобы /auth/refresh не делал второй запрос.
-   * Истёкшие/отозванные строки помечаем revoked_at (диагностика, reuse-детекция),
-   * физически удаляет их вероятностная cleanupStaleSessions.
-   */
   async findActiveSession(tokenHash: string): Promise<SessionRow | null> {
     const { rows } = await pool.query<SessionRow>(
       `SELECT rt.id AS token_id, u.*
@@ -75,7 +50,6 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
-  /** Отзыв одной сессии (logout / ротация refresh). */
   async revokeRefreshTokenById(id: string): Promise<void> {
     await pool.query(
       'UPDATE public.refresh_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
@@ -83,7 +57,6 @@ export class AuthRepository {
     );
   }
 
-  /** Отзыв ВСЕХ сессий пользователя — «выйти на всех устройствах» после смены пароля. */
   async revokeAllRefreshTokens(userId: string): Promise<void> {
     await pool.query(
       'UPDATE public.refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
@@ -91,7 +64,6 @@ export class AuthRepository {
     );
   }
 
-  /** Обновление bcrypt-хэша пароля (сравнение хэшей делается в сервисе). */
   async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
     await pool.query(
       'UPDATE public.users SET password_hash = $2, updated_at = now() WHERE id = $1',
@@ -99,13 +71,6 @@ export class AuthRepository {
     );
   }
 
-  /**
-   * Неудачная попытка входа: атомарно (одним UPDATE, без read-modify-write
-   * гонок между параллельными логинами) инкрементирует счётчик users.
-   * Если срок предыдущей блокировки истёк — окно начинается заново (1 вместо
-   * inf+1). На maxAttempts-й по счёту неудаче ставится locked_until = now() +
-   * lockMinutes минут; оба числа уходят параметрами, строк клиента в SQL нет.
-   */
   async registerFailedAttempt(
     userId: string,
     maxAttempts: number,
@@ -133,11 +98,6 @@ export class AuthRepository {
     );
   }
 
-  /**
-   * Сброс блокировки после успешного входа или смены пароля. Условием
-   * отсекаем холостые UPDATE: на успешном логине «чистого» аккаунта запрос
-   * не трогает строку.
-   */
   async resetFailedAttempts(userId: string): Promise<void> {
     await pool.query(
       `UPDATE public.users
@@ -148,11 +108,6 @@ export class AuthRepository {
     );
   }
 
-  /**
-   * Строка refresh_tokens по хэшу без фильтра активности — для детекции
-   * переиспользования (сервис различает «токена нет в природе» и «токен был,
-   * но уже повёрнут/отозван»).
-   */
   async findSessionByHash(tokenHash: string): Promise<StaleSessionRow | null> {
     const { rows } = await pool.query<StaleSessionRow>(
       'SELECT user_id, revoked_at FROM public.refresh_tokens WHERE token_hash = $1',
@@ -161,11 +116,6 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
-  /**
-   * Удаление «омертвевших» записей сессий: отозванные и истёкшие старше
-   * STALE_SESSION_RETENTION_DAYS (30-дневный запас для диагностики).
-   * Запускается вероятностно из createSession — постоянного крона нет.
-   */
   async cleanupStaleSessions(): Promise<void> {
     await pool.query(
       `DELETE FROM public.refresh_tokens

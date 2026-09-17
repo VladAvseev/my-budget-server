@@ -1,13 +1,5 @@
--- Этап 1/8: переход к нескольким аккаунтам и переводам.
--- Шаг 4. Переносим накопления и остатки savings/savings_out в отдельные accounts.
---
--- Для каждой пары (user_id, category_id) из accumulations и savings-операций создаётся счёт:
---   * name = name категории или 'Накопления без категории' для NULL;
---   * initial_balance = сумма accumulations.amount для группы;
---   * is_closed = false, is_primary = false.
---
--- Идемпотентность: соответствия хранятся в служебной таблице
--- public.migration_savings_accounts_map, существующие группы не повторяются.
+-- Шаг 4: накопления — в отдельные счета (is_primary = false).
+-- Идемпотентно: соответствия хранятся в migration_savings_accounts_map.
 begin;
 
 create table if not exists public.migration_savings_accounts_map (

@@ -4,32 +4,16 @@ import { usersController } from './controller.js';
 
 export const usersRouter = Router();
 
-// Весь модуль требует авторизации: доступ к чужим данным отсекает
-// middleware (дальше все запросы идут строго от id из проверенного JWT).
 usersRouter.use(authenticate);
 
-// GET /users/me (хук useProfile):
-// профиль текущего пользователя: логин, роль, currency, onboarded.
 usersRouter.get('/me', usersController.getMe);
 
-// PATCH /users/me: { currency?, onboarded? } → обновлённый профиль.
 usersRouter.patch('/me', usersController.updateMe);
 
-// GET /users/me/onboarding (useOnboardingChecklist):
-// счётчики категорий/отчётов/операций для чек-листа на главной.
 usersRouter.get('/me/onboarding', usersController.getOnboardingState);
 
-// GET /users/me/summary (useGlobalBalance):
-// суммы операций по всем отчётам пользователя.
 usersRouter.get('/me/summary', usersController.getSummary);
 
-// GET /users/me/bootstrap (useBootstrap, главная):
-// профиль-срез, онбординг-счётчики, последний период со сводкой и глобальные
-// суммы — один CTE-запрос вместо нескольких карточных запросов.
 usersRouter.get('/me/bootstrap', usersController.getBootstrap);
 
-// DELETE /users/me: self-удаление — тот же сценарий, что отзыв согласия
-// (revoked → обезличивание → erased). Маршрут ДОСТУПЕН и в состоянии
-// NEEDS_CONSENT (модуль /users не закрыт requireConsent): пользователь,
-// отказывающийся принять согласие, обязан иметь путь к удалению аккаунта (п.5).
 usersRouter.delete('/me', usersController.deleteMe);

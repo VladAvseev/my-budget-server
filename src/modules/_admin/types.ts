@@ -1,26 +1,11 @@
-/**
- * Типы модуля admin: сводки дашборда, динамика операций, список пользователей,
- * логи запросов.
- * Ключи соответствуют типам клиента, которые живут в файлах его хуков:
- * AdminDashboardStats — client/src/modules/_admin/_dashboard/api/useAdminStats.ts,
- * AdminUserRow — client/src/modules/_admin/_users/api/useAdminUsers.ts,
- * AdminUserOption — client/src/modules/_admin/_users/api/useAdminUserOptions.ts,
- * форма строк логов — client/src/modules/_admin/_logs/api/useAdminLogs.ts,
- * чтобы админ-панель не менялась.
- *
- * Права: доступ к маршрутам даёт middleware requireAdmin
- * (authenticate + JWT-claim role) в router.ts.
- */
-
-/** Ответ GET /admin/dashboard/stats — структура admin_get_dashboard_stats. */
 export interface AdminDashboardStats {
   users: {
     total: number;
-    /** Пользователи без единого отчёта — «не начали пользоваться». */
+
     withoutReports: number;
     onboarded: number;
   };
-  /** Активные по окну активности (DAU…YAU) — счётчики last_active_at. */
+
   activity: {
     dau: number;
     wau: number;
@@ -29,7 +14,7 @@ export interface AdminDashboardStats {
     sau: number;
     yau: number;
   };
-  /** Отток: неактивнее окна (последний из двух — всего, сколько «спят» дольше). */
+
   churn: {
     inactive1d: number;
     inactive7d: number;
@@ -45,27 +30,22 @@ export interface AdminDashboardStats {
     total: number;
     income: number;
     expense: number;
-    /** savings и savings_out считаются вместе. */
+
     savings: number;
   };
 }
 
-/** Метрика графиков: количество записей или уникальные авторы. */
 export type AdminChartMetric = 'count' | 'unique_users';
 
-/** Гранулярность графика динамики операций: день, месяц или год. */
 export type OperationsDynamicsAggregation = 'D' | 'M' | 'Y';
 
-/** Гранулярность графика динамики логов: МСК-час или МСК-сутки. */
 export type LogsDynamicsBucket = 'hour' | 'day';
 
-/** Одна точка графика: ключ периода (зависит от гранулярности) и значение метрики. */
 export interface AdminChartPoint {
   period: string;
   value: number;
 }
 
-/** Ответ GET /admin/dashboard/operations-dynamics. */
 export interface AdminOperationsDynamics {
   audience: LogsAudience;
   metric: AdminChartMetric;
@@ -74,28 +54,16 @@ export interface AdminOperationsDynamics {
   total: number;
 }
 
-/** Размер одной таблицы БД, байты (pg_total_relation_size: данные + индексы + TOAST). */
 export interface TableStorageSize {
   name: string;
   sizeBytes: number;
 }
 
-/**
- * Ответ GET /admin/dashboard/storage-breakdown: общий размер текущей БД
- * (pg_database_size) и разбивка по всем базовым таблицам схемы public.
- * Долю «остальных данных» (служебное пространство СУБД) клиент считает сам
- * как databaseBytes минус сумма размеров таблиц.
- */
 export interface StorageBreakdown {
   databaseBytes: number;
   tables: TableStorageSize[];
 }
 
-/**
- * Строка таблицы пользователей админки. Ключи смешанные
- * (user_id/last_active_at в snake_case, счётчики в camelCase) — их ожидает
- * клиентский AdminUserRow.
- */
 export interface AdminUserRow {
   user_id: string;
   login: string;
@@ -107,57 +75,28 @@ export interface AdminUserRow {
   incomeCount: number;
   expenseCount: number;
   savingsCount: number;
-  /** Открытые счета (public.accounts WHERE NOT is_closed). */
+
   accountsCount: number;
-  /** Цели на открытых счетах. */
+
   goalsCount: number;
 }
 
-/**
- * Лёгкая опция пользователя для селектов админки (GET /admin/users/options):
- * только id и логин, без агрегатов активности/сущностей — чтобы вкладка «Логи»
- * не тянула тяжёлый GET /admin/users ради фильтра по автору.
- */
 export interface AdminUserOption {
   userId: string;
   login: string;
 }
 
-// ── Логи запросов (таблица public.request_logs) ─────────────────────────────
-
-/**
- * Фильтр списка логов по классу статуса: все / info (<400) / warning (4xx) /
- * error (5xx).
- */
 export type LogsStatusFilter = 'all' | 'info' | 'warning' | 'error';
 
-/** Допустимые значения фильтра methods в GET /admin/logs (пустой список — все). */
 export type LogsMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-/**
- * Фильтр логов по автору (query `userId` в GET /admin/logs):
- *   * all       — без фильтра;
- *   * anonymous — только запросы без авторизации (is_authenticated = false);
- *   * user      — запросы конкретного пользователя.
- */
 export type LogsUserFilter =
   { kind: 'all' } | { kind: 'anonymous' } | { kind: 'user'; userId: string };
 
-/** Период агрегации метрик. */
 export type LogsPeriod = '24h' | '7d' | '30d' | 'all';
 
-/**
- * Фильтр по роли автора (query `audience` в эндпоинтах графиков):
- *   * all   — без фильтра (операции/логи и пользователей, и админов);
- *   * users — только роль 'user' (без админов и без запросов без авторизации).
- */
 export type LogsAudience = 'all' | 'users';
 
-/**
- * Ответ GET /admin/logs/dynamics: точки выбранной гранулярности и общий итог.
- * Для metric=count total — все логи, для unique_users — уникальные user_id за
- * всё время (не сумма почасовых/суточных уникальных пользователей).
- */
 export interface AdminLogsDynamics {
   audience: LogsAudience;
   metric: AdminChartMetric;
@@ -166,14 +105,9 @@ export interface AdminLogsDynamics {
   total: number;
 }
 
-/**
- * Сортировка строк логов (query `sort`/`order` в GET /admin/logs):
- * date — created_at (по умолчанию), duration — duration_ms.
- */
 export type LogsSortField = 'date' | 'duration';
 export type LogsSortOrder = 'asc' | 'desc';
 
-/** Одна строка лога (GET /admin/logs). */
 export interface AdminLogRow {
   id: number;
   createdAt: string;
@@ -181,17 +115,16 @@ export interface AdminLogRow {
   path: string;
   status: number;
   durationMs: number;
-  /** Текст ошибки для ответов с статусом >= 400; null — запрос успешный. */
+
   error: string | null;
-  /** Автор запроса; null — запрос без авторизации (или пользователь удалён). */
+
   userId: string | null;
-  /** Логин автора (JOIN users) для отображения в админке; null, если неавторизован. */
+
   userLogin: string | null;
-  /** true — на момент запроса был валидный access-токен (см. is_authenticated). */
+
   isAuthenticated: boolean;
 }
 
-/** Ответ GET /admin/logs — страница + пагинация. */
 export interface AdminLogsPage {
   items: AdminLogRow[];
   total: number;
@@ -199,25 +132,20 @@ export interface AdminLogsPage {
   limit: number;
 }
 
-/** Эндпоинт со статистикой (топ-листы метрик). */
 export interface AdminLogEndpointStat {
-  endpoint: string; // 'GET /reports'
+  endpoint: string;
   count: number;
   avgDurationMs: number;
   errorCount: number;
 }
 
-/**
- * Ответ GET /admin/logs/metrics. Счётчики разбиты по классам статуса:
- * info (<400), warning (4xx), error (только 5xx). Топ-листы — по 10 позиций.
- */
 export interface AdminLogsMetrics {
   period: LogsPeriod;
   total: number;
   infoCount: number;
   warningCount: number;
   errorCount: number;
-  /** Доля ошибок (только 5xx) 0..1 (null, если запросов не было). */
+
   errorRate: number | null;
   avgDurationMs: number | null;
   p95DurationMs: number | null;

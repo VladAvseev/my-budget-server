@@ -14,21 +14,9 @@ import {
   type ConsentStateRow,
 } from './types.js';
 
-/**
- * Бизнес-логика consent-gate (п.5 требований) — центральный механизм для трёх
- * сценариев: новый пользователь, обновление политики, пользователи «до
- * появления документа».
- *
- * check_consent(): нет записи / отзыв / несовпадение версии — NEEDS_CONSENT.
- * Отсутствие опубликованного документа NEEDS_CONSENT НЕ даёт: гейту нечего
- * показывать (механизм активируется после первой публикации через CLI).
- */
-
-/** Признак согласия в JWT не лежит, поэтому middleware проверяет его по БД. */
 const CONSENT_CACHE_TTL_MS = 60 * 1000;
 const CONSENT_CACHE_MAX = 5000;
 
-/** userId -> состояние согласия на момент проверки (короткий кэш от запроса на запрос). */
 const consentCache = new Map<string, { state: ConsentStateDto; checkedAt: number }>();
 
 function invalidateConsentCache(userId: string): void {
@@ -53,22 +41,16 @@ function deriveState(row: ConsentStateRow): ConsentStateDto {
   return { needsConsent: false, reason: null, ...base };
 }
 
-/** Текст/код ошибки для middleware: клиент по code показывает consent-gate. */
 export const CONSENT_REQUIRED_MESSAGE =
   'Необходимо подтверждение согласия на обработку персональных данных. Чтобы принять соглашение, обновите страницу';
 
 export class ConsentService {
-  /** Актуальное состояние (без кэша) — для GET /consent/status и ответов grant. */
+
   async getState(userId: string): Promise<ConsentStateDto> {
     const row = await consentRepository.getStateRow(userId, GATING_DOCUMENT_TYPE);
     return deriveState(row);
   }
 
-  /**
-   * Проверка для requireConsent: коротко кэшируется (TTL 60 c), чтобы гейт
-   * не добавлял SELECT на каждый бизнес-запрос. Мутации согласия сбрасывают
-   * запись кэша явно (forgetConsentState).
-   */
   async ensureConsent(userId: string): Promise<void> {
     const now = Date.now();
     const cached = consentCache.get(userId);
@@ -95,12 +77,6 @@ export class ConsentService {
     return state.needsConsent;
   }
 
-  /**
-   * Принятие согласия в gate'е (п.5): версия берётся сервером из is_current
-   * на момент запроса (клиент версию не передаёт и не может «согласиться»
-   * с устаревшим текстом), created_at — now() из базы, задним числом не
-   * проставляется никогда.
-   */
   async grant(userId: string, meta: ConsentRequestMeta): Promise<ConsentStateDto> {
     await withTransaction(async (client) => {
       const version = await consentRepository.getCurrentVersion(client, GATING_DOCUMENT_TYPE);
@@ -122,28 +98,12 @@ export class ConsentService {
     return this.getState(userId);
   }
 
-  /**
-   * Отзыв согласия / удаление аккаунта (п.7): в ОДНОЙ транзакции —
-   * revoked → обезличивание данных → erased. Удаление персональных данных
-   * происходит сразу (вместо 30-дневного ожидания — «в течение не более
-   * 30 дней» выполнено с запасом), сам журнал consent_log остаётся: он обязан
-   * пережить пользователя (хранение >= 3 лет).
-   *
-   * Все сессии удаляются вместе со строками refresh_tokens — пользователь
-   * разлогинивается на всех устройствах, а вход становится невозможен
-   * (логин обезличен, пароль — случайный).
-   *
-   * Если документ ещё не опубликован (окно между деплоем схемы и первой
-   * публикацией CLI), строки журнала вставить не к чему — FK на версию не
-   * выполнится; тогда выполняем только обезличивание и пишем предупреждение.
-   */
   async revokeAndErase(
     userId: string,
     meta: ConsentRequestMeta,
     formId: ConsentFormId,
   ): Promise<void> {
-    // Недостижимый пароль: bcrypt-хэш 32 случайных байт подобрать нельзя,
-    // а колонка password_hash NOT NULL.
+
     const unreachableHash = await hash(randomBytes(32).toString('base64url'), 10);
 
     let published = true;

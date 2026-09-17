@@ -14,15 +14,6 @@ import type {
   ReportSummary,
 } from './types.js';
 
-/**
- * Слой доступа к данным отчётов, их сводок и лимитов категорий.
- *
- * Принадлежность строк пользователю обеспечивает сам сервер: каждый запрос
- * фильтрует по user_id, а проверка ownership отчёта вызывается из сервиса
- * перед операциями над вложенными ресурсами (summary/limits).
- */
-
-/** Строка БД → DTO ответа (camelCase-ключи задаёт клиентский тип). */
 export function toReportDto(row: ReportRow): ReportDto {
   return {
     id: row.id,
@@ -36,7 +27,6 @@ export function toReportDto(row: ReportRow): ReportDto {
   };
 }
 
-/** Строка `category_limits` → DTO ответа. */
 export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
   return {
     id: row.id,
@@ -50,7 +40,7 @@ export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
 }
 
 export class ReportsRepository {
-  /** Список отчётов пользователя: новые (по началу периода) сверху. */
+
   async list(userId: string): Promise<ReportRow[]> {
     const { rows } = await pool.query<ReportRow>(
       `SELECT * FROM public.reports
@@ -61,7 +51,6 @@ export class ReportsRepository {
     return rows;
   }
 
-  /** Отчёт по id: отдаём только его владельцу. */
   async getById(id: string, userId: string, client?: PoolClient): Promise<ReportRow | null> {
     const { rows } = await (client ?? pool).query<ReportRow>(
       'SELECT * FROM public.reports WHERE id = $1 AND user_id = $2',
@@ -70,7 +59,6 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Дешёвая проверка владения для assertReport (без чтения всей строки). */
   async existsOwned(id: string, userId: string): Promise<boolean> {
     const { rows } = await pool.query(
       'SELECT 1 FROM public.reports WHERE id = $1 AND user_id = $2',
@@ -79,7 +67,6 @@ export class ReportsRepository {
     return rows.length > 0;
   }
 
-  /** Проверка уникальности кода периода до вставки (пустой код не учитывается). */
   async codeExists(userId: string, code: string): Promise<boolean> {
     const { rows } = await pool.query(
       "SELECT 1 FROM public.reports WHERE user_id = $1 AND code = $2 AND code <> ''",
@@ -88,7 +75,6 @@ export class ReportsRepository {
     return rows.length > 0;
   }
 
-  /** Создание отчёта. Дубликат кода поймает и частичный unique-индекс (23505). */
   async create(userId: string, input: CreateReportInput): Promise<ReportRow> {
     const { rows } = await pool.query<ReportRow>(
       `INSERT INTO public.reports
@@ -100,7 +86,6 @@ export class ReportsRepository {
     return rows[0];
   }
 
-  /** Частичное обновление отчёта: только переданные поля (REST-семантика PATCH). */
   async update(
     id: string,
     userId: string,
@@ -134,14 +119,10 @@ export class ReportsRepository {
     return rows[0] ?? null;
   }
 
-  /** Удаление отчёта вместе с его операциями, включая операции закрытых счетов. */
   async remove(id: string, userId: string): Promise<boolean> {
     return withAccountTransaction(userId, async (client) => {
       if (!(await this.getById(id, userId, client))) return false;
-      // Явно удаляем операции до отчёта, чтобы не зависеть от FK в живой БД.
-      // Проверка закрытости счетов здесь не применяется: удаление периода —
-      // исключение, как обезличивание (иначе период с операциями закрытого
-      // счёта нельзя было бы удалить, а SET NULL оставлял бы ghost-балансы).
+
       await client.query('DELETE FROM public.operations WHERE report_id = $1', [id]);
       const { rowCount } = await client.query(
         'DELETE FROM public.reports WHERE id = $1 AND user_id = $2',
@@ -151,11 +132,6 @@ export class ReportsRepository {
     });
   }
 
-  /**
-   * Сводка сумм по типам операций одного отчёта — тот же SQL, что в
-   * getSummary-запросе модуля _users, только фильтр по report_id.
-   * SUM() по пустой таблице даёт NULL, отсюда coalesce.
-   */
   async getSummary(reportId: string): Promise<ReportSummary> {
     const { rows } = await pool.query<{
       income: string;
@@ -179,13 +155,6 @@ export class ReportsRepository {
     };
   }
 
-  /**
-   * Дельта капитала по периодам (отчётам): одна строка на отчёт — sum(income) −
-   * sum(expense) всех его операций (переводы нулевые для капитала; пустой
-   * отчёт даёт delta 0), месяц строки = месяц начала периода. Операции вне
-   * отчётов в кривую не входят: деньги на балансе счетов они двигают, а точки
-   * графика живут по периодам.
-   */
   async listCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     const { rows } = await pool.query<{ month: string; delta: string }>(
       `SELECT to_char(date_trunc('month', r.period_start), 'YYYY-MM') AS month,
@@ -204,7 +173,6 @@ export class ReportsRepository {
     return rows.map((row) => ({ month: row.month, delta: Number(row.delta) }));
   }
 
-  /** Лимиты категорий отчёта в порядке создания (старые сверху). */
   async listCategoryLimits(reportId: string): Promise<CategoryLimitRow[]> {
     const { rows } = await pool.query<CategoryLimitRow>(
       `SELECT * FROM public.category_limits
@@ -215,7 +183,6 @@ export class ReportsRepository {
     return rows;
   }
 
-  /** Сколько из переданных категорий принадлежат пользователю (для сверки со списком). */
   async countOwnedCategories(userId: string, categoryIds: string[]): Promise<number> {
     const { rows } = await pool.query<{ cnt: string }>(
       'SELECT count(*)::int AS cnt FROM public.categories WHERE user_id = $1 AND id = ANY($2::uuid[])',
@@ -224,11 +191,6 @@ export class ReportsRepository {
     return Number(rows[0].cnt);
   }
 
-  /**
-   * Полная замена лимитов категорий в ОДНОЙ транзакции: pool.query без BEGIN
-   * оставил бы отчёт без лимитов при падении вставки. Все строки — одним
-   * multi-values INSERT (цикл по одному запросу давал N round-trip).
-   */
   async replaceCategoryLimits(
     reportId: string,
     userId: string,
@@ -237,7 +199,6 @@ export class ReportsRepository {
     return withTransaction(async (client) => {
       await client.query('DELETE FROM public.category_limits WHERE report_id = $1', [reportId]);
 
-      // Пустой список = «лимиты сброшены», дальше вставлять нечего.
       if (limits.length > 0) {
         const values: unknown[] = [reportId, userId];
         const tuples = limits.map((item) => {

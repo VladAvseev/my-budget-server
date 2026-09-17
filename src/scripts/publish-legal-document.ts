@@ -1,51 +1,3 @@
-/**
- * Публикация и проверка юридических документов (п.2/п.6 требований).
- *
- * Исходники текстов живут в git: <каталог документов>/<document_type>.md
- * (по умолчанию docs/legal; в проде каталог примонтирован в api-контейнер как
- * /docs:ro — там LEGAL_DOCS_DIR или --docs-dir = /docs). Канон опубликованной
- * версии — таблица legal_documents в БД.
- *
- *   npm run legal:publish -- --type privacy_policy                      (dev, файл по умолчанию)
- *   npm run legal:publish -- --type privacy_policy --file docs/legal/privacy_policy.md
- *   npm run legal:publish -- --all --dry-run     (проверить все тексты без записи)
- *   npm run legal:publish -- --type privacy_policy --file - < policy.md  (stdin — резервный путь)
- *   npm run legal:publish -- --verify            (целостность всех опубликованных типов)
- *   npm run legal:publish -- --verify --type privacy_policy
- *
- * На проде (после deploy-api, из /opt/mybudget/server):
- *   docker compose exec api node dist/scripts/publish-legal-document.js \
- *     --all --docs-dir /docs --dry-run
- *   docker compose exec api node dist/scripts/publish-legal-document.js \
- *     --all --docs-dir /docs
- *
- * Правила, которые обеспечивает скрипт:
- *   * merge в develop ≠ опубликовано: пока CLI не вызван явно, пользователям
- *     отдаётся прежняя current-версия из БД;
- *   * неизвестный --type отклоняется (клиент показывал бы «документ не
- *     найден»): список известный — KNOWN_DOCUMENT_TYPES, новый тип — только с
- *     --allow-unknown и одновременной правкой реестра client/src/shared/legal;
- *   * текст проходит префлайт (сырой HTML, пустые строки, незаполненные
- *     [плейсхолдеры], отсутствие контакта оператора) — с --strict предупреждения
- *     тоже блокируют публикацию;
- *   * текст совпадает с текущей версией (sha256) — публикации нет: это защитило
- *     бы от холостой инвалидации согласий всех пользователей;
- *   * новая версия = НОВАЯ строка (version = дата публикации по МСК, при
- *     конфликте того же дня — суффикс -2, -3…); published_at = now();
- *   * снятие is_current со старой и установка новой — в одной транзакции
- *     (частичный unique-индекс legal_documents_current_key не допустит
- *     двух «текущих» даже при гонке);
- *   * content — Markdown как есть (CRLF нормализуется в LF, иначе хэш
- *     зависел бы от редактора/checkout), content_hash = sha256 от него;
- *   * --cosmetic — ОСОЗНАННОЕ исключение из «не редактировать»: правит
- *     content/content_hash ТЕКУЩЕЙ строки (версия и согласия пользователей
- *     не меняются). Каждый такой вызов должен быть зафиксирован в
- *     коммит-сообщении/журнале публикации;
- *   * --verify сверяет content_hash со фактическим sha256(content) — у
- *     расходящихся строк публикация была изменена в обход процесса (инцидент).
- *
- * Скрипт НЕ рендерит HTML: Markdown конвертирует клиент (react-markdown).
- */
 import { pool } from '@/db/pool.js';
 import { GATING_DOCUMENT_TYPE } from '@/modules/_consent/types.js';
 import { KNOWN_DOCUMENT_TYPES } from '@/modules/_legal/types.js';
@@ -57,10 +9,6 @@ import { join } from 'node:path';
 const out = (line: string): void => void process.stdout.write(`${line}\n`);
 const err = (line: string): void => void process.stderr.write(`${line}\n`);
 
-/**
- * Текст ошибки для stderr: у AggregateError (ECONNREFUSED из pg при недоступной
- * БД) message пустой, детали лежат в .errors — иначе CLI ругался бы «ошибка: ».
- */
 function describeError(error: unknown): string {
   const aggregate = (error as Partial<AggregateError>)?.errors;
   const base = (error as Error)?.message || String(error);
@@ -71,10 +19,8 @@ function describeError(error: unknown): string {
   return [base, details, code].filter(Boolean).join(' — ');
 }
 
-/** Каталог markdown-исходников: dev — docs/legal, прод — /docs (bind-mount). */
 const DEFAULT_DOCS_DIR = process.env.LEGAL_DOCS_DIR ?? 'docs/legal';
 
-/** Sanity-лимит: юридический текст — десятки килобайт, не мегабайты. */
 const MAX_DOCUMENT_BYTES = 256 * 1024;
 
 interface Args {
@@ -195,7 +141,6 @@ function validate(args: Args): Args {
 const isKnownType = (documentType: string): boolean =>
   (KNOWN_DOCUMENT_TYPES as readonly string[]).includes(documentType);
 
-/** true — документ участвует в consent-gate (публикация инвалидирует согласия). */
 const isGatingType = (documentType: string): boolean => documentType === GATING_DOCUMENT_TYPE;
 
 function defaultFile(documentType: string, docsDir: string): string {
@@ -216,12 +161,6 @@ interface Preflight {
   warnings: string[];
 }
 
-/**
- * Проверка markdown-исходника ДО записи в БД. Публикация — юридическое
- * событие: опечатка в имени файла или незаполненный [ПЛЕЙСХОЛДЕР] не должны
- * становиться «действующей редакцией», по которой пользователи дают согласие.
- * Ошибки блокируют всегда, предупреждения — с --strict.
- */
 function preflight(documentType: string, content: string): Preflight {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -287,7 +226,6 @@ function reportPreflight(documentType: string, report: Preflight, strict: boolea
   }
 }
 
-/** Дата публикации по МСК: «сегодня» для читателя совпадает с версией. */
 function todayVersion(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow' })
     .format(new Date())
@@ -309,7 +247,6 @@ async function findCurrent(documentType: string): Promise<CurrentRow | undefined
   return rows[0];
 }
 
-/** Версия следующая за сегодняшней датой: -2, -3… при конфликте того же дня. */
 async function nextVersion(
   query: (sql: string, params: unknown[]) => Promise<{ rows: { taken: boolean }[] }>,
   documentType: string,
@@ -350,8 +287,7 @@ async function publish(
     const currentRow = current.rows[0];
 
     if (cosmetic) {
-      // Исключение из правила «опубликованная версия не редактируется»:
-      // косметическая правка без смены версии (согласия НЕ инвалидируются).
+
       if (!currentRow) {
         throw new Error(
           `Текущая версия ${documentType} не найдена — косметическая правка невозможна`,
@@ -369,14 +305,10 @@ async function publish(
       return { kind: 'cosmetic', version: currentRow.version };
     }
 
-    // Публиковать неотличимый от текущего текст нельзя: новая версия
-    // автоматически перевела бы всех пользователей в NEEDS_CONSENT впустую.
     if (currentRow && currentRow.content_hash === hash) {
       return { kind: 'unchanged', version: currentRow.version };
     }
 
-    // Версия выбирается внутри транзакции: between check and insert другой
-    // процесс не вклинится (публикатор один, но индекс unique покрывает и гонку).
     const version = await nextVersion(
       (sql, params) => client.query<{ taken: boolean }>(sql, params as never[]),
       documentType,
@@ -426,7 +358,6 @@ async function publish(
   }
 }
 
-/** --dry-run: тот же путь, что и публикация, но без единой записи в БД. */
 async function dryRun(documentType: string, content: string, cosmetic: boolean): Promise<void> {
   const hash = sha256Hex(content);
   const current = await findCurrent(documentType);
@@ -501,8 +432,7 @@ async function verifyOne(documentType: string): Promise<number> {
         (ok ? '' : `\n     ожидался ${row.content_hash}, фактический ${actual}`),
     );
   }
-  // Частичный unique-индекс не допустит двух current, но отсутствие текущей
-  // версии (ручной UPDATE в БД) равносильно инциденту: гейт сломан.
+
   if (currentCount !== 1) {
     err(`${documentType}: строк с is_current = ${currentCount} (должна быть ровно одна)`);
     bad += 1;

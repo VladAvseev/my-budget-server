@@ -1,13 +1,5 @@
--- Инкрементальная миграция 2026-09-10 (3): нормализация id в путях request_logs.
---
--- requestLoggingMiddleware теперь пишет путь с ':id' вместо фактических
--- UUID/числовых сегментов (/api/v1/reports/123 -> /api/v1/reports/:id),
--- иначе метрики топов в админке группировали бы каждый id отдельно.
--- Этот файл приводит уже накопленные строки к тому же виду.
--- Применение — см. server/AGENTS.md:
---   docker compose exec db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-10-request-logs-normalize-paths.sql
---
--- Идемпотентно: ':id' не совпадает с паттернами, повторный прогон ничего не меняет.
+-- Нормализация id в путях request_logs к виду :id.
+-- Применение: docker compose exec -T db psql -U mybudget -d mybudget -f - < db/migrations/2026-09-10-request-logs-normalize-paths.sql. Идемпотентно.
 
 -- UUID-сегменты (все id ресурсов в схеме — uuid).
 update public.request_logs

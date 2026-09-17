@@ -1,5 +1,4 @@
-# Пайплайн сервера my-budget: npm ci → lint → typecheck → build,
-# деплой docker-образа api на боевой сервер, зеркало репозитория в GitHub.
+# Пайплайн: lint → typecheck → build, деплой api, зеркало в GitHub.
 
 stages:
   - build
@@ -7,14 +6,10 @@ stages:
   - mirror
 
 variables:
-  # Тот же образ Node, что в Dockerfile api
+  # Тот же Node, что в Dockerfile
   NODE_IMAGE: node:22-alpine
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Этап 1: проверка и сборка Express-бэкенда
-# .env в CI не создаём (в отличие от клиента): tsc/eslint не читают dotenv,
-# а рантайм-конфигурация (DATABASE_URL, JWT_SECRET) серверу при сборке не нужен.
-# ─────────────────────────────────────────────────────────────────────────────
+# Этап 1: проверка и сборка (.env не нужен: tsc/eslint dotenv не читают)
 build:
   stage: build
   image: $NODE_IMAGE
@@ -31,16 +26,9 @@ build:
   only:
     - develop
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Этап 2: деплой api на сервер (Reg.ru, docker compose)
-# Джоба существует только когда в Variables заведён DEPLOY_SSH_KEY —
-# до этого пайплайн остаётся прежним (сборка+зеркало).
-# Ключ DEPLOY_SSH_KEY — приватная часть gitlab_deploy с сервера
-# (root@server: /root/.ssh/gitlab_deploy), публичная — в authorized_keys.
-# На сервере CI делает hard-reset клона на origin/develop и пересобирает
-# ТОЛЬКО сервис api: база и web при этом не трогаются.
-# DEPLOY_HOST/DEPLOY_USER — обычные (не Mask) переменные того же проекта.
-# ─────────────────────────────────────────────────────────────────────────────
+# Этап 2: деплой api (только после DEPLOY_SSH_KEY; база и web не трогаются).
+# На сервере: hard-reset на origin/develop и пересборка только api.
+# DEPLOY_HOST/DEPLOY_USER — обычные переменные проекта.
 deploy-api:
   stage: deploy
   image: alpine:latest
@@ -50,18 +38,14 @@ deploy-api:
   before_script:
     - apk add --no-cache openssh-client
     - eval $(ssh-agent -s)
-    # tr -d '\r' — страховка от CRLF при вставке ключа в веб-форму GitLab
+    # CRLF-страховка ключа из веб-формы GitLab
     - echo "$DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add - > /dev/null
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
   script:
-    # Засев CONSENT_ENC_KEY в прод-.env из masked-переменной GitLab:
-    # однократно — существующий ключ не перезаписываем (старые записи
-    # consent_log расшифровываются только исходным ключом, ротация — руками).
-    # Значение идёт по stdin, чтобы секрет не светился в аргументах ssh/ps
-    # на сервере. Если ключа нет ни в .env, ни в переменных — джоба падает,
-    # а не деплоит сервер с 500 на принятии согласия и регистрации.
-    # Переменная в GitLab: Masked, БЕЗ Protected (develop не protected-ветка).
+    # Засев CONSENT_ENC_KEY в прод-.env (однократно, без перезаписи):
+    # секрет — по stdin, не в аргументах. Без ключа джоба падает, а не деплоит
+    # сервер с 500 на регистрации и принятии согласия. Переменная: Masked, без Protected.
     - >
       printf '%s\n' "$CONSENT_ENC_KEY"
       | ssh "$DEPLOY_USER@$DEPLOY_HOST"
@@ -78,21 +62,13 @@ deploy-api:
       && git reset --hard origin/develop
       && docker compose up -d --build api"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Этап 3: зеркало в GitHub (по образцу mirror-to-github клиента)
-# Приватный SSH-ключ берётся из переменной GitLab SSH_PRIVATE_KEY_MIRROR
-# (Settings → CI/CD → Variables, без Mask/Protect). Публичная часть этого ключа
-# добавлена в Deploy keys репозитория VladAvseev/my-budget-server с правом
-# записи (Allow write access) — иначе github отклонит push.
-# ─────────────────────────────────────────────────────────────────────────────
+# Этап 3: зеркало в GitHub (ключ SSH_PRIVATE_KEY_MIRROR, deploy key с записью).
 mirror-to-github:
   stage: mirror
   only:
     - develop
   variables:
-    # GitLab по умолчанию делает shallow-клон (--depth 20): thin-pack из такого
-    # клона при push на GitHub ссылается на дельта-базы за пределами окна
-    # ("remote unpack failed: did not receive expected object") — нужен полный клон.
+    # Shallow-клон ломает push (thin-pack) — нужен полный (GIT_DEPTH: 0)
     GIT_DEPTH: 0
   before_script:
     - mkdir -p ~/.ssh
@@ -101,6 +77,5 @@ mirror-to-github:
     - ssh-keyscan github.com >> ~/.ssh/known_hosts
     - git remote add github git@github.com:VladAvseev/my-budget-server.git
   script:
-    # --force: зеркало однонаправленное (GitLab → GitHub), расходимость перезаписываем
-    # --no-thin: самодостаточный пак, без внешних дельта-баз на стороне GitHub
+    # Зеркало однонаправленное (--force) и самодостаточное (--no-thin)
     - git push --no-thin --force github "HEAD:refs/heads/${CI_COMMIT_REF_NAME}"

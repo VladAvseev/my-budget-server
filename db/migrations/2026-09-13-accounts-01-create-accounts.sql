@@ -1,16 +1,8 @@
--- Этап 1/8: переход к нескольким аккаунтам и переводам.
--- Шаг 1. Создаём accounts, защищаем основной счёт и сохраняем денежный снимок.
--- Основной счёт существующих пользователей заполняется уже здесь, чтобы после
--- COMMIT не оставалось пользователей без счёта. Шаг 2 пропустит эти строки.
---
--- Идемпотентность:
---   * объекты создаются через if not exists;
---   * снимок заполняется только для пользователей, которых в нём ещё нет,
---     чтобы повторный прогон после частичных изменений не пересчитывал «до».
+-- Шаг 1: таблица accounts, защита основного счёта, денежный снимок.
+-- Идемпотентно (if not exists; снимок — только новым пользователям).
 begin;
 
--- Не допускаем регистрацию и изменение исходных балансов между бэкфиллом
--- и установкой триггера создания основного счёта.
+-- Блокируем users на время бэкфилла.
 lock table public.users in share row exclusive mode;
 
 create table if not exists public.accounts (
@@ -84,8 +76,7 @@ create trigger trg_accounts_prevent_truncate
   before truncate on public.accounts
   for each statement execute function public.protect_primary_account();
 
--- Сохраняем прежний начальный баланс; NULL становится 0, как в шаге 2.
--- Уже существующие основные счета не перезаписываем.
+-- NULL становится 0; существующие основные счета не перезаписываем.
 insert into public.accounts (user_id, name, initial_balance, is_closed, is_primary)
 select u.id, 'Основной счёт', coalesce(u.start_balance, 0)::numeric, false, true
 from public.users u
@@ -94,9 +85,6 @@ where not exists (
 );
 
 -- Новый пользователь сразу получает открытый основной счёт с нулевым балансом.
--- Вставка счёта выполняется в той же транзакции: если она не удалась,
--- пользователь тоже не создаётся. Бэкенду не нужно повторно вставлять primary.
--- Функция не зависит от start_balance, удаляемого в шаге 3.
 create or replace function public.create_user_primary_account()
 returns trigger
 language plpgsql
@@ -118,8 +106,7 @@ create trigger trg_accounts_updated_at
   before update on public.accounts
   for each row execute function public.set_updated_at();
 
--- Временная таблица проверки. Хранит сумму, которая должна сохраниться:
--- start_balance + доход - расход - ежедневная + накопления.
+-- Снимок для проверки: сумма, которая должна сохраниться.
 create table if not exists public.migration_accounts_snapshot (
   user_id uuid primary key references public.users(id) on delete cascade,
   expected_total numeric not null

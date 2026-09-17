@@ -1,4 +1,4 @@
-/** Проверка на НОВОЙ изолированной БД goals_check*: прод-подключения запрещены. */
+/** Только изолированная БД goals_check*: прод запрещён. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import express from 'express';
@@ -19,7 +19,7 @@ assert.equal(tables.length, 0, 'Проверка запускается толь
 await pool.query(readFileSync('db/schema.sql', 'utf8'));
 console.warn('Пустая schema.sql: успешно');
 const migration = readFileSync('db/migrations/2026-09-15-account-goals.sql', 'utf8');
-// Восстанавливаем только старую таблицу целей в одноразовой БД для проверки перехода.
+// Старая таблица целей для проверки перехода.
 await pool.query(
   'DROP TABLE public.goals; CREATE TABLE public.goals (id uuid, category_id uuid); INSERT INTO public.goals VALUES (gen_random_uuid(), gen_random_uuid())',
 );
@@ -41,7 +41,7 @@ const foreign = (await pool.query('SELECT id FROM public.accounts WHERE user_id=
   .rows[0].id;
 const app = express();
 app.use(express.json());
-// Изолированный HTTP-стенд: подставляем только тестового владельца; проверяем реальные контроллеры и SQL.
+// Изолированный стенд: только тестовый владелец, реальные контроллеры и SQL.
 app.use((req, _res, next) => {
   req.user = {
     id: req.headers.authorization === 'Bearer other' ? other : owner,
@@ -59,8 +59,7 @@ for (const [resource, controller] of [
 }
 app.use(errorMiddleware);
 const server = app.listen(5501, '127.0.0.1');
-// Ответ тестового стенда: json() в актуальных @types/node типизирован как unknown,
-// для проверок удобнее any (файл вне src/ и не попадает в eslint).
+// Ответ стенда: json() типизирован как unknown, для проверок удобнее any.
 type CheckResponse = { status: number; data: any; location: string | null };
 const request = async (
   path: string,

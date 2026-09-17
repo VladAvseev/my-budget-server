@@ -1,9 +1,5 @@
-/** Типы операций и DTO ответов API (snake_case). */
-
-/** Типы операций — CHECK-констрейнт `operations_type_check` в db/schema.sql. */
 export type OperationType = 'income' | 'expense' | 'transfer';
 
-/** Строка таблицы `operations` как её отдаёт pg (см. db/schema.sql). */
 export interface OperationRow {
   account_id: string | null;
   from_account_id: string | null;
@@ -12,17 +8,16 @@ export interface OperationRow {
   report_id: string | null;
   user_id: string;
   type: OperationType;
-  /** numeric → строка драйвера pg, в DTO конвертим в число. */
+
   amount: string;
   category_id: string | null;
   description: string | null;
-  /** 'YYYY-MM-DD' или null (парсер DATE отключён в pool.ts). */
+
   date: string | null;
   created_at: Date;
   updated_at: Date;
 }
 
-/** Ответ API с операцией. */
 export interface OperationDto {
   account_id: string | null;
   from_account_id: string | null;
@@ -39,9 +34,6 @@ export interface OperationDto {
   updated_at: string;
 }
 
-/**
- * Ответ для сводки overview — только нужные поля, id операции не возвращается.
- */
 export interface OverviewOperationDto {
   report_id: string;
   type: OperationType;
@@ -49,10 +41,6 @@ export interface OverviewOperationDto {
   category_id: string | null;
 }
 
-/**
- * Ответ GET /operations/category-summary: суммы операций, свёрнутые сервером
- * по отчёту, типу и категории.
- */
 export interface CategorySummaryRowDto {
   report_id: string;
   type: OperationType;
@@ -60,14 +48,12 @@ export interface CategorySummaryRowDto {
   category_id: string | null;
 }
 
-/** Нормализованная привязка: одно поле для обычной операции, два для перевода. */
 export interface OperationAccounts {
   account_id: string | null;
   from_account_id: string | null;
   to_account_id: string | null;
 }
 
-/** POST /operations — клиентский OperationInput + reportId. */
 export interface CreateOperationInput extends OperationAccounts {
   reportId: string;
   type: OperationType;
@@ -77,11 +63,6 @@ export interface CreateOperationInput extends OperationAccounts {
   date: string | null;
 }
 
-/**
- * PATCH /operations/:id — клиентский OperationUpdateInput.
- * Обновляются только переданные поля (REST-семантика PATCH):
- * отсутствующие поля сохраняют текущие значения.
- */
 export interface UpdateOperationInput extends Partial<OperationAccounts> {
   amount?: number;
   categoryId?: string | null;
@@ -90,5 +71,4 @@ export interface UpdateOperationInput extends Partial<OperationAccounts> {
   date?: string | null;
 }
 
-/** Перечисление type операций — CHECK-констрейнт в db/schema.sql. */
 export const OPERATION_TYPES = ['income', 'expense', 'transfer'] as const satisfies readonly OperationType[];

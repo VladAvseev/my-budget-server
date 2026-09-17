@@ -5,7 +5,6 @@ import type { PoolClient } from 'pg';
 import { accountsRepository, toAccountDto } from './repository.js';
 import type { AccountChanges } from './types.js';
 
-/** Сохраняем десятичную строку до PostgreSQL, не округляя её через Number. */
 function balanceInput(value: unknown): string {
   if (
     (typeof value !== 'string' && typeof value !== 'number') ||

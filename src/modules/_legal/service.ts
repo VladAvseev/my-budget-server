@@ -4,16 +4,8 @@ import { requireNonEmptyString } from '@/shared/validate.js';
 import { legalRepository } from './repository.js';
 import type { LegalDocumentDto, LegalDocumentRow } from './types.js';
 
-/**
- * Чтение юридических документов для публичной выдачи клиенту.
- * document_type/version приходят из URL — проверяем формат ДО SQL (значения
- * всё равно уходят параметрами, но мусорные пути не должны попадать в базу).
- */
-
-/** 'privacy_policy', 'terms_of_use' — строчные латиница/цифры/-_ до 50 символов. */
 const DOCUMENT_TYPE_RE = /^[a-z0-9_-]{1,50}$/;
 
-/** Версии вида '2026-09-12' или '2026-09-12-2'. */
 const VERSION_RE = /^[A-Za-z0-9._-]{1,20}$/;
 
 function requireDocumentType(value: unknown): string {
@@ -43,13 +35,7 @@ function toDto(row: LegalDocumentRow): LegalDocumentDto {
 }
 
 export class LegalService {
-  /**
-   * Целостность опубликованного текста: пересчитываем sha256 при каждой выдаче
-   * (документы килобайтные, стоимость пренебрежима). Расхождение означает, что
-   * строку правили в обход процесса публикации, — логируем как инцидент, но
-   * наружу отдаём то, что лежит в базе: со своей стороны клиент сверит
-   * content и contentHash и увидит подмену.
-   */
+
   private checkIntegrity(dto: LegalDocumentDto): LegalDocumentDto {
     if (sha256Hex(dto.content) !== dto.contentHash) {
       // eslint-disable-next-line no-console -- инцидент целостности легального документа

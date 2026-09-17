@@ -3,27 +3,8 @@ import { AppError } from '@/shared/appError.js';
 import type { PoolClient } from 'pg';
 import type { ConsentLogEntry, ConsentStateRow } from './types.js';
 
-/**
- * Слой доступа к consent_log (append-only) и текущей версии документа.
- * Записи в журнал делает ТОЛЬКО сервер (п.8 требований): insert-функции
- * принимают ip/user-agent из запроса, created_at отдаёт база (DEFAULT now()),
- * клиент не может передать ни время, ни версию.
- */
-
-/**
- * Опции pgp_sym_encrypt: у PGP-функций pgcrypto имена только через дефис
- * (underscore-синтаксис 'cipher_algo' и опция 'armor' есть лишь у
- * низкоуровневого encrypt() — иначе 'Illegal argument to function').
- * Бронирование — отдельной функцией armor(): ASCII-вывод кладём в text-колонку
- * (расшифровка — pgp_sym_decrypt(dearmor(...)), см. шапку миграции).
- */
 const PGP_OPTIONS = 'cipher-algo=aes256';
 
-/**
- * Ключ шифрования ip/user_agent (п.8: журнал ПДн защищаем так же, как и сами
- * ПДн). Отсутствие env — серверная конфигурационная ошибка, наружу 500 без
- * деталей, в stderr — точный текст.
- */
 function encKey(): string {
   const key = process.env.CONSENT_ENC_KEY;
   if (!key) {
@@ -35,13 +16,7 @@ function encKey(): string {
 }
 
 export class ConsentRepository {
-  /**
-   * Состояние согласия одним запросом: текущая опубликованная версия документа
-   * и самая свежая строка журнала пользователя (tie-breaker id — записи одного
-   * транзакционного момента created_at различить не могут). Отдельно берётся
-   * версия последней grant-записи: после отзыва latest — revoked/erased, а
-   * пользователю в профиле нужно показать текст, с которым он соглашался.
-   */
+
   async getStateRow(userId: string, documentType: string): Promise<ConsentStateRow> {
     const { rows } = await pool.query<ConsentStateRow>(
       `SELECT
@@ -61,11 +36,6 @@ export class ConsentRepository {
     return rows[0];
   }
 
-  /**
-   * Вставка события журнала. Принимает клиент транзакции: регистрация
-   * (user + granted) и отзыв (revoked + обезличивание + erased) обязаны
-   * коммититься целиком.
-   */
   async insertEntry(client: PoolClient, entry: ConsentLogEntry): Promise<void> {
     await client.query(
       `INSERT INTO public.consent_log
@@ -89,7 +59,6 @@ export class ConsentRepository {
     );
   }
 
-  /** Текущая версия документа (для записи document_version); null — не опубликован. */
   async getCurrentVersion(client: PoolClient, documentType: string): Promise<string | null> {
     const { rows } = await client.query<{ version: string }>(
       `SELECT version FROM public.legal_documents
