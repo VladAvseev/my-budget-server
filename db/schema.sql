@@ -87,25 +87,6 @@ CREATE TABLE IF NOT EXISTS public.refresh_tokens (
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON public.refresh_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON public.refresh_tokens(user_id);
 
--- Расширяемые настройки аккаунта (схема настроек описана на клиенте).
-CREATE TABLE IF NOT EXISTS public.user_settings (
-    user_id uuid primary key references public.users(id) on delete cascade,
-    settings jsonb not null default '{}'::jsonb,
-    updated_at timestamp with time zone not null default now()
-);
-
--- Заметки администратора о пользователе (одна на автора).
-CREATE TABLE IF NOT EXISTS public.admin_notes (
-    id uuid default gen_random_uuid() not null primary key,
-    user_id uuid not null references public.users(id) on delete cascade,
-    author_id uuid references public.users(id) on delete set null,
-    text text not null,
-    created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null
-);
-CREATE INDEX IF NOT EXISTS idx_admin_notes_user_id ON public.admin_notes(user_id);
-CREATE INDEX IF NOT EXISTS idx_admin_notes_author_id ON public.admin_notes(author_id);
-
 -- Операции: тип 'income' (доход), 'expense' (расход)
 -- и 'transfer' (перевод между аккаунтами: заполняются from_account_id/to_account_id).
 -- Пользовательские отчёты: конфигурация хранится в JSONB (см. client/src/features/reports).
@@ -156,42 +137,6 @@ CREATE TABLE IF NOT EXISTS public.category_limits (
     CONSTRAINT category_limits_period_check CHECK (period = ANY (ARRAY['week'::text, 'month'::text, 'quarter'::text, 'year'::text]))
 );
 
--- Группы категорий для пользовательских отчётов.
-CREATE TABLE IF NOT EXISTS public.category_group_assignments (
-    id uuid default gen_random_uuid() not null primary key,
-    report_id uuid not null references public.reports(id) on delete cascade,
-    user_id uuid not null references public.users(id) on delete cascade,
-    category_id uuid not null references public.categories(id) on delete cascade,
-    group_name text not null,
-    created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null
-);
-
--- Настройки групп в отчётах (исключение/прочее).
-CREATE TABLE IF NOT EXISTS public.report_group_overrides (
-    id uuid default gen_random_uuid() not null primary key,
-    report_id uuid not null references public.reports(id) on delete cascade,
-    user_id uuid not null references public.users(id) on delete cascade,
-    group_name text not null,
-    category_ids text not null,
-    is_excluded boolean default false not null,
-    is_other boolean default false not null,
-    created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null
-);
-
--- Пользовательский старт расчётного периода («месяц с 5-го числа»).
--- Один раз на весь отчёт (report_id = null) или на конкретную группу.
-CREATE TABLE IF NOT EXISTS public.report_period_settings (
-    id uuid default gen_random_uuid() not null primary key,
-    user_id uuid not null references public.users(id) on delete cascade,
-    report_id uuid references public.reports(id) on delete cascade,
-    group_name text,
-    period_start jsonb not null,
-    created_at timestamp with time zone default now() not null,
-    updated_at timestamp with time zone default now() not null
-);
-
 -- Лог входящих запросов и ошибок (пишет requestLoggingMiddleware, смотрит админка).
 -- Писали без IP и User-Agent: они занимали основной объём таблицы и не использовались
 -- в фильтрах; ошибки ищутся по тексту, авторизованность — по is_authenticated.
@@ -235,16 +180,6 @@ CREATE INDEX IF NOT EXISTS idx_requests_type ON public.reports USING btree (type
 CREATE INDEX IF NOT EXISTS idx_category_limits_report_id ON public.category_limits USING btree (report_id);
 CREATE INDEX IF NOT EXISTS idx_category_limits_user_id ON public.category_limits USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_category_limits_category_id ON public.category_limits USING btree (category_id);
-
-CREATE INDEX IF NOT EXISTS idx_report_group_overrides_report_id ON public.report_group_overrides USING btree (report_id);
-CREATE INDEX IF NOT EXISTS idx_report_group_overrides_user_id ON public.report_group_overrides USING btree (user_id);
-
-CREATE INDEX IF NOT EXISTS idx_category_group_assignments_report_id ON public.category_group_assignments USING btree (report_id);
-CREATE INDEX IF NOT EXISTS idx_category_group_assignments_user_id ON public.category_group_assignments USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_category_group_assignments_category_id ON public.category_group_assignments USING btree (category_id);
-
-CREATE INDEX IF NOT EXISTS idx_report_period_settings_user_id ON public.report_period_settings USING btree (user_id);
-CREATE INDEX IF NOT EXISTS idx_report_period_settings_report_id ON public.report_period_settings USING btree (report_id);
 
 CREATE INDEX IF NOT EXISTS request_logs_created_at_idx ON public.request_logs USING btree (created_at desc);
 CREATE INDEX IF NOT EXISTS request_logs_status_created_at_idx ON public.request_logs USING btree (status, created_at desc);
@@ -294,15 +229,6 @@ CREATE TRIGGER trg_accounts_updated_at BEFORE UPDATE ON public.accounts FOR EACH
 
 DROP TRIGGER IF EXISTS trg_category_limits_updated_at ON public.category_limits;
 CREATE TRIGGER trg_category_limits_updated_at BEFORE UPDATE ON public.category_limits FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_report_group_overrides_updated_at ON public.report_group_overrides;
-CREATE TRIGGER trg_report_group_overrides_updated_at BEFORE UPDATE ON public.report_group_overrides FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_category_group_assignments_updated_at ON public.category_group_assignments;
-CREATE TRIGGER trg_category_group_assignments_updated_at BEFORE UPDATE ON public.category_group_assignments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_report_period_settings_updated_at ON public.report_period_settings;
-CREATE TRIGGER trg_report_period_settings_updated_at BEFORE UPDATE ON public.report_period_settings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_seed_default_categories ON public.users;
 CREATE TRIGGER trg_seed_default_categories AFTER INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION public.seed_default_categories_for_user();
