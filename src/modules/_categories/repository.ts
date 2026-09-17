@@ -1,5 +1,4 @@
 import { withAccountTransaction } from '@/shared/accountRules.js';
-import type { PoolClient } from 'pg';
 import { pool } from '@/db/pool.js';
 import { toIsoString } from '@/shared/serialize.js';
 import type { CategoryDto, CategoryRow, CategoryType, UpdateCategoryInput } from './types.js';
@@ -116,28 +115,6 @@ export class CategoriesRepository {
       );
       return (rowCount ?? 0) > 0;
     });
-  }
-
-  /**
-   * Проверка «эта категория — моя (и, опционально, нужного типа)» — общий
-   * хелпер для _operations/_accumulations/_goals: на сервере фильтр явный.
-   */
-  async isOwned(
-    userId: string,
-    categoryId: string,
-    type?: CategoryType,
-    client?: PoolClient,
-  ): Promise<boolean> {
-    const { rows } = type
-      ? await (client ?? pool).query(
-          'SELECT 1 FROM public.categories WHERE id = $1 AND user_id = $2 AND type = $3',
-          [categoryId, userId, type],
-        )
-      : await (client ?? pool).query(
-          'SELECT 1 FROM public.categories WHERE id = $1 AND user_id = $2',
-          [categoryId, userId],
-        );
-    return rows.length > 0;
   }
 }
 
