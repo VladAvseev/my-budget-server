@@ -1,5 +1,5 @@
-import { lockActiveUser } from '@/shared/accountRules.js';
 import { usersRepository } from '@/modules/_users/repository.js';
+import { lockActiveUser } from '@/shared/accountRules.js';
 import { AppError } from '@/shared/appError.js';
 import { withTransaction } from '@/shared/transaction.js';
 import { hash } from 'bcryptjs';
@@ -55,7 +55,7 @@ function deriveState(row: ConsentStateRow): ConsentStateDto {
 
 /** Текст/код ошибки для middleware: клиент по code показывает consent-gate. */
 export const CONSENT_REQUIRED_MESSAGE =
-  'Необходимо подтверждение согласия на обработку персональных данных';
+  'Необходимо подтверждение согласия на обработку персональных данных. Чтобы принять соглашение, обновите страницу';
 
 export class ConsentService {
   /** Актуальное состояние (без кэша) — для GET /consent/status и ответов grant. */
