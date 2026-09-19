@@ -9,11 +9,11 @@ export const rateLimitMiddleware = rateLimit({
 });
 
 export const authRateLimitMiddleware = rateLimit({
-  windowMs: 15 * MINUTE,
-  limit: 5,
+  windowMs: 10 * MINUTE,
+  limit: 10,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: {
-    error: { message: 'Слишком много попыток. Повторите через 15 минут.', status: 429 },
+    error: { message: 'Слишком много попыток. Повторите через 10 минут.', status: 429 },
   },
 });
