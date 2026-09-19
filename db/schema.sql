@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.accounts (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     name text NOT NULL,
+    color text,
     initial_balance numeric DEFAULT 0 NOT NULL,
     is_closed boolean DEFAULT false NOT NULL,
     is_primary boolean DEFAULT false NOT NULL,

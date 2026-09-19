@@ -3,6 +3,7 @@ import { requirePrimaryAccount, withAccountTransaction } from '@/shared/accountR
 import { requireBoolean, requireNonEmptyString, requireUuid } from '@/shared/validate.js';
 import type { PoolClient } from 'pg';
 import { accountsRepository, toAccountDto } from './repository.js';
+import { ACCOUNT_COLORS } from './types.js';
 import type { AccountChanges } from './types.js';
 
 function balanceInput(value: unknown): string {
@@ -27,6 +28,24 @@ function validateBody(body: Record<string, unknown>, allowed: string[]): void {
   }
 }
 
+// Пусто (null/undefined/'') — без цвета, иначе только hex из палитры.
+function requireAccountColor(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== 'string' || value.trim() === '') {
+    if (typeof value === 'string' && value.trim() === '') {
+      return null;
+    }
+    throw new AppError('Некорректный цвет счёта', 400, 'INVALID_ACCOUNT_COLOR');
+  }
+  const color = value.trim();
+  if (!(ACCOUNT_COLORS as readonly string[]).includes(color)) {
+    throw new AppError('Некорректный цвет счёта', 400, 'INVALID_ACCOUNT_COLOR');
+  }
+  return color;
+}
+
 export class AccountsService {
   async list(userId: string, filter: unknown) {
     if (filter !== undefined && filter !== 'true' && filter !== 'false') {
@@ -48,16 +67,17 @@ export class AccountsService {
   }
 
   async create(userId: string, body: Record<string, unknown>) {
-    validateBody(body, ['name', 'initial_balance', 'is_primary']);
+    validateBody(body, ['name', 'initial_balance', 'is_primary', 'color']);
     const name = requireNonEmptyString(body.name, 'Название счёта обязательно');
     const balance = body.initial_balance === undefined ? '0' : balanceInput(body.initial_balance);
+    const color = requireAccountColor(body.color);
     const primary =
       body.is_primary === undefined
         ? false
         : requireBoolean(body.is_primary, 'Некорректный признак основного счёта');
     return withAccountTransaction(userId, async (client) => {
       await requirePrimaryAccount(client, userId);
-      const id = await accountsRepository.create(client, userId, name, balance);
+      const id = await accountsRepository.create(client, userId, name, balance, color);
       if (primary) await accountsRepository.makePrimary(client, userId, id);
       await requirePrimaryAccount(client, userId);
       return toAccountDto(await this.mustGet(userId, id, client));
@@ -66,12 +86,13 @@ export class AccountsService {
 
   async update(userId: string, rawId: unknown, body: Record<string, unknown>) {
     const id = requireUuid(rawId);
-    validateBody(body, ['name', 'initial_balance', 'is_closed', 'is_primary']);
+    validateBody(body, ['name', 'initial_balance', 'is_closed', 'is_primary', 'color']);
     if (!Object.keys(body).length)
       throw new AppError('Не передано ни одного поля для обновления', 400);
     const input: AccountChanges = {};
     if (body.name !== undefined)
       input.name = requireNonEmptyString(body.name, 'Название счёта обязательно');
+    if (body.color !== undefined) input.color = requireAccountColor(body.color);
     if (body.initial_balance !== undefined)
       input.initial_balance = balanceInput(body.initial_balance);
     const closed =

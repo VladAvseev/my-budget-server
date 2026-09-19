@@ -21,6 +21,7 @@ export function toAccountDto(row: AccountRow): AccountDto {
     id: row.id,
     user_id: row.user_id,
     name: row.name,
+    color: row.color,
     initial_balance: toNumber(row.initial_balance),
     balance: toNumber(row.balance),
     is_closed: row.is_closed,
@@ -49,11 +50,17 @@ export class AccountsRepository {
     return rows[0] ?? null;
   }
 
-  async create(client: PoolClient, userId: string, name: string, balance: string): Promise<string> {
+  async create(
+    client: PoolClient,
+    userId: string,
+    name: string,
+    balance: string,
+    color: string | null,
+  ): Promise<string> {
     const { rows } = await client.query<{ id: string }>(
-      `INSERT INTO public.accounts (user_id, name, initial_balance)
-       VALUES ($1, $2, $3::numeric) RETURNING id`,
-      [userId, name, balance],
+      `INSERT INTO public.accounts (user_id, name, initial_balance, color)
+       VALUES ($1, $2, $3::numeric, $4) RETURNING id`,
+      [userId, name, balance, color],
     );
     return rows[0].id;
   }
@@ -66,7 +73,7 @@ export class AccountsRepository {
   ): Promise<void> {
     const values: unknown[] = [userId, id];
     const sets: string[] = [];
-    for (const key of ['name', 'initial_balance', 'is_closed'] as const) {
+    for (const key of ['name', 'color', 'initial_balance', 'is_closed'] as const) {
       if (input[key] !== undefined) {
         values.push(input[key]);
         sets.push(`${key} = $${values.length}`);
