@@ -2,6 +2,7 @@ import { pool } from '@/db/pool.js';
 import { toIsoString, toNumber } from '@/shared/serialize.js';
 import type { PoolClient } from 'pg';
 import type {
+  CapitalMonthDto,
   CategorySummaryRowDto,
   CreateOperationInput,
   OperationDto,
@@ -17,7 +18,6 @@ export function toOperationDto(row: OperationRow): OperationDto {
     account_id: row.account_id,
     from_account_id: row.from_account_id,
     to_account_id: row.to_account_id,
-    report_id: row.report_id,
     user_id: row.user_id,
     type: row.type,
     amount: toNumber(row.amount),
@@ -29,7 +29,7 @@ export function toOperationDto(row: OperationRow): OperationDto {
   };
 }
 
-const OPERATION_COLUMNS = `id, report_id, user_id, type, amount, category_id,
+const OPERATION_COLUMNS = `id, user_id, type, amount, category_id,
        account_id, from_account_id, to_account_id,
        description, date, created_at, updated_at`;
 
@@ -42,74 +42,123 @@ export class OperationsRepository {
     return rows[0] ?? null;
   }
 
-  async isReportOwned(reportId: string, userId: string, client?: PoolClient): Promise<boolean> {
-    const runner = client ?? pool;
-    const { rows } = await runner.query(
-      'SELECT 1 FROM public.reports WHERE id = $1 AND user_id = $2',
-      [reportId, userId],
-    );
-    return rows.length > 0;
-  }
-
-  async listByReport(reportId: string, types: OperationType[]): Promise<OperationRow[]> {
+  async listByMonths(
+    months: string[],
+    userId: string,
+    types: OperationType[],
+  ): Promise<OperationRow[]> {
+    if (months.length === 0) {
+      return [];
+    }
     const { rows } = await pool.query<OperationRow>(
       `SELECT ${OPERATION_COLUMNS}
        FROM public.operations
-       WHERE report_id = $1 AND type = ANY($2::text[])
-       ORDER BY created_at DESC`,
-      [reportId, types],
+       WHERE user_id = $1
+         AND to_char(date, 'YYYY-MM') = ANY($2::text[])
+         AND type = ANY($3::text[])
+       ORDER BY date DESC, created_at DESC`,
+      [userId, months, types],
     );
     return rows;
   }
 
-  async listByReports(reportIds: string[], userId: string): Promise<OverviewOperationDto[]> {
-    if (reportIds.length === 0) {
+  async listOverviewByMonths(
+    months: string[],
+    userId: string,
+  ): Promise<OverviewOperationDto[]> {
+    if (months.length === 0) {
       return [];
     }
-
     const { rows } = await pool.query<{
-      report_id: string;
+      month: string;
       type: OperationType;
       amount: string;
       category_id: string | null;
     }>(
-      `SELECT report_id, type, amount, category_id
+      `SELECT to_char(date, 'YYYY-MM') AS month, type, amount, category_id
        FROM public.operations
-       WHERE report_id = ANY($1::uuid[]) AND user_id = $2`,
-      [reportIds, userId],
+       WHERE to_char(date, 'YYYY-MM') = ANY($1::text[]) AND user_id = $2`,
+      [months, userId],
     );
     return rows.map((row) => ({
-      report_id: row.report_id,
+      month: row.month,
       type: row.type,
       amount: toNumber(row.amount),
       category_id: row.category_id,
     }));
   }
 
-  async categorySummary(reportIds: string[], userId: string): Promise<CategorySummaryRowDto[]> {
-    if (reportIds.length === 0) {
+  async categorySummary(
+    months: string[],
+    userId: string,
+  ): Promise<CategorySummaryRowDto[]> {
+    if (months.length === 0) {
       return [];
     }
     const { rows } = await pool.query<{
-      report_id: string;
+      month: string;
       type: OperationType;
       amount: string;
       category_id: string | null;
     }>(
-      `SELECT report_id, type, category_id,
+      `SELECT to_char(date, 'YYYY-MM') AS month, type, category_id,
               coalesce(sum(amount::numeric), 0) AS amount
          FROM public.operations
-        WHERE report_id = ANY($1::uuid[]) AND user_id = $2
+        WHERE to_char(date, 'YYYY-MM') = ANY($1::text[]) AND user_id = $2
           AND type IN ('income', 'expense')
-        GROUP BY report_id, type, category_id`,
-      [reportIds, userId],
+        GROUP BY month, type, category_id`,
+      [months, userId],
     );
     return rows.map((row) => ({
-      report_id: row.report_id,
+      month: row.month,
       type: row.type,
       amount: toNumber(row.amount),
       category_id: row.category_id,
     }));
+  }
+
+  async listMonths(userId: string): Promise<string[]> {
+    const { rows } = await pool.query<{ month: string }>(
+      `SELECT to_char(date, 'YYYY-MM') AS month
+         FROM public.operations
+        WHERE user_id = $1 AND date IS NOT NULL
+        GROUP BY month
+        HAVING count(*) > 0
+        ORDER BY month DESC`,
+      [userId],
+    );
+    return rows.map((row) => row.month);
+  }
+
+  async monthSummary(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<{ income: number; expense: number }> {
+    const { rows } = await pool.query<{ income: string; expense: string }>(
+      `SELECT
+         coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0) AS income,
+         coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS expense
+       FROM public.operations
+       WHERE user_id = $1 AND date >= $2::date AND date <= $3::date`,
+      [userId, from, to],
+    );
+    const row = rows[0];
+    return { income: Number(row?.income ?? 0), expense: Number(row?.expense ?? 0) };
+  }
+
+  async listCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
+    const { rows } = await pool.query<{ month: string; delta: string }>(
+      `SELECT to_char(date_trunc('month', date), 'YYYY-MM') AS month,
+              coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0)
+                - coalesce(sum(amount::numeric) FILTER (WHERE type = 'expense'), 0) AS delta
+         FROM public.operations
+        WHERE user_id = $1 AND date IS NOT NULL AND date <= CURRENT_DATE
+        GROUP BY date_trunc('month', date)
+        ORDER BY date_trunc('month', date)`,
+      [userId],
+    );
+    return rows.map((row) => ({ month: row.month, delta: Number(row.delta) }));
   }
 
   async getOwnedAccounts(client: PoolClient, userId: string, ids: string[]) {
@@ -141,12 +190,11 @@ export class OperationsRepository {
   ): Promise<OperationRow> {
     const { rows } = await client.query<OperationRow>(
       `INSERT INTO public.operations
-         (report_id, user_id, type, amount, category_id, description, date,
+         (user_id, type, amount, category_id, description, date,
           account_id, from_account_id, to_account_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING ${OPERATION_COLUMNS}`,
       [
-        input.reportId,
         userId,
         input.type,
         input.amount,

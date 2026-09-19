@@ -20,14 +20,11 @@ interface HomeBootstrapRow {
   onboarded: boolean;
   income: string;
   expense: string;
-  last_report_id: string | null;
-  last_report_name: string | null;
-  last_report_start: string | null;
-  last_report_end: string | null;
-  last_income: string | null;
-  last_expense: string | null;
+  current_income: string;
+  current_expense: string;
+  trailing_income: string;
+  trailing_expense: string;
   categories: number;
-  reports: number;
   operations: number;
 }
 
@@ -45,7 +42,6 @@ export function toPublicUser(row: UserRow): PublicUser {
 }
 
 export class UsersRepository {
-
   async getById(id: string): Promise<UserRow | null> {
     const { rows } = await pool.query<UserRow>('SELECT * FROM public.users WHERE id = $1', [id]);
     return rows[0] ?? null;
@@ -106,7 +102,6 @@ export class UsersRepository {
       [userId],
     );
     await client.query('DELETE FROM public.accounts WHERE user_id = $1', [userId]);
-    await client.query('DELETE FROM public.reports WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM public.categories WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM public.refresh_tokens WHERE user_id = $1', [userId]);
   }
@@ -114,19 +109,16 @@ export class UsersRepository {
   async getOnboardingState(userId: string): Promise<OnboardingState> {
     const { rows } = await pool.query<{
       categories: number;
-      reports: number;
       operations: number;
     }>(
       `SELECT
          (SELECT count(*)::int FROM public.categories WHERE user_id = $1) AS categories,
-         (SELECT count(*)::int FROM public.reports    WHERE user_id = $1) AS reports,
          (SELECT count(*)::int FROM public.operations WHERE user_id = $1) AS operations`,
       [userId],
     );
     const row = rows[0];
     return {
       categories: Number(row.categories),
-      reports: Number(row.reports),
       operations: Number(row.operations),
     };
   }
@@ -152,7 +144,13 @@ export class UsersRepository {
 
   async getHomeBootstrap(userId: string): Promise<HomeBootstrap | null> {
     const { rows } = await pool.query<HomeBootstrapRow>(
-      `WITH
+      `WITH bounds AS (
+         SELECT
+           date_trunc('month', CURRENT_DATE)::date AS month_start,
+           (date_trunc('month', CURRENT_DATE) + interval '1 month' - interval '1 day')::date AS month_end,
+           (date_trunc('month', CURRENT_DATE) - interval '12 months')::date AS trailing_start,
+           (date_trunc('month', CURRENT_DATE) - interval '1 day')::date AS trailing_end
+       ),
        totals AS (
          SELECT
            coalesce(sum(amount::numeric) FILTER (WHERE type = 'income'), 0)  AS income,
@@ -160,38 +158,36 @@ export class UsersRepository {
          FROM public.operations
          WHERE user_id = $1
        ),
-       last_report AS (
-         SELECT id, name, period_start, period_end
-         FROM public.reports
-         WHERE user_id = $1
-         ORDER BY period_end DESC NULLS LAST, period_start DESC NULLS LAST
-         LIMIT 1
-       ),
-       last_summary AS (
+       current_summary AS (
          SELECT
            coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)  AS income,
            coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0) AS expense
-         FROM public.operations o
-         JOIN last_report lr ON lr.id = o.report_id
+         FROM public.operations o, bounds b
+         WHERE o.user_id = $1 AND o.date >= b.month_start AND o.date <= b.month_end
+       ),
+       trailing_summary AS (
+         SELECT
+           coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'income'), 0)  AS income,
+           coalesce(sum(o.amount::numeric) FILTER (WHERE o.type = 'expense'), 0) AS expense
+         FROM public.operations o, bounds b
+         WHERE o.user_id = $1 AND o.date >= b.trailing_start AND o.date <= b.trailing_end
        ),
        counters AS (
          SELECT
            (SELECT count(*)::int FROM public.categories WHERE user_id = $1) AS categories,
-           (SELECT count(*)::int FROM public.reports    WHERE user_id = $1) AS reports,
            (SELECT count(*)::int FROM public.operations WHERE user_id = $1) AS operations
        )
        SELECT
          u.currency, u.onboarded,
          t.income, t.expense,
-         lr.id AS last_report_id, lr.name AS last_report_name,
-         lr.period_start AS last_report_start, lr.period_end AS last_report_end,
-         ls.income AS last_income, ls.expense AS last_expense,
-         c.categories, c.reports, c.operations
+         cs.income AS current_income, cs.expense AS current_expense,
+         ts.income AS trailing_income, ts.expense AS trailing_expense,
+         c.categories, c.operations
        FROM public.users u
        CROSS JOIN totals t
        CROSS JOIN counters c
-       LEFT JOIN last_report lr ON true
-       LEFT JOIN last_summary ls ON true
+       CROSS JOIN current_summary cs
+       CROSS JOIN trailing_summary ts
        WHERE u.id = $1`,
       [userId],
     );
@@ -208,22 +204,16 @@ export class UsersRepository {
       },
       onboarding: {
         categories: row.categories,
-        reports: row.reports,
         operations: row.operations,
       },
-      lastReport: row.last_report_id
-        ? {
-            id: row.last_report_id,
-
-            name: row.last_report_name ?? '',
-            period_start: row.last_report_start,
-            period_end: row.last_report_end,
-            summary: {
-              income: Number(row.last_income),
-              expense: Number(row.last_expense),
-            },
-          }
-        : null,
+      currentMonth: {
+        income: Number(row.current_income),
+        expense: Number(row.current_expense),
+      },
+      trailingYear: {
+        income: Number(row.trailing_income),
+        expense: Number(row.trailing_expense),
+      },
       globalTotals: {
         income: Number(row.income),
         expense: Number(row.expense),

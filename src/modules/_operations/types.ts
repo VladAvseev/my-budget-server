@@ -5,7 +5,6 @@ export interface OperationRow {
   from_account_id: string | null;
   to_account_id: string | null;
   id: string;
-  report_id: string | null;
   user_id: string;
   type: OperationType;
 
@@ -23,7 +22,6 @@ export interface OperationDto {
   from_account_id: string | null;
   to_account_id: string | null;
   id: string;
-  report_id: string | null;
   user_id: string;
   type: OperationType;
   amount: number;
@@ -35,17 +33,22 @@ export interface OperationDto {
 }
 
 export interface OverviewOperationDto {
-  report_id: string;
+  month: string;
   type: OperationType;
   amount: number;
   category_id: string | null;
 }
 
 export interface CategorySummaryRowDto {
-  report_id: string;
+  month: string;
   type: OperationType;
   amount: number;
   category_id: string | null;
+}
+
+export interface CapitalMonthDto {
+  month: string;
+  delta: number;
 }
 
 export interface OperationAccounts {
@@ -55,12 +58,11 @@ export interface OperationAccounts {
 }
 
 export interface CreateOperationInput extends OperationAccounts {
-  reportId: string;
   type: OperationType;
   amount: number;
   categoryId: string | null;
   description: string | null;
-  date: string | null;
+  date: string;
 }
 
 export interface UpdateOperationInput extends Partial<OperationAccounts> {

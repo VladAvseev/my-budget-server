@@ -60,7 +60,7 @@
   неопубликованный документ гейт НЕ включает). Эндпоинты: `GET
   /consent/status`, `POST /consent/grant` (версию сервер берёт сам),
   `POST /consent/revoke`. `requireConsent` висит на бизнес-модулях
-   (operations/reports/categories/goals/admin) и отдаёт 403 с
+   (operations/categories/goals/admin) и отдаёт 403 с
   `error.code='CONSENT_REQUIRED'` (поле кода добавлено в envelope
   errorMiddleware — обратно совместимо); /auth, /users и /consent доступны и
   в состоянии NEEDS_CONSENT (путь к принятию и удалению аккаунта). Состояние

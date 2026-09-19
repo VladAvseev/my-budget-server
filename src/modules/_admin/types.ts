@@ -2,7 +2,6 @@ export interface AdminDashboardStats {
   users: {
     total: number;
 
-    withoutReports: number;
     onboarded: number;
   };
 
@@ -23,15 +22,12 @@ export interface AdminDashboardStats {
     inactive180d: number;
     inactive365d: number;
   };
-  reports: {
-    total: number;
-  };
   operations: {
     total: number;
     income: number;
     expense: number;
 
-    savings: number;
+    transfer: number;
   };
 }
 
@@ -69,12 +65,11 @@ export interface AdminUserRow {
   login: string;
   last_active_at: string | null;
   onboarded: boolean;
-  reportsCount: number;
   operationsCount: number;
   categoriesCount: number;
   incomeCount: number;
   expenseCount: number;
-  savingsCount: number;
+  transferCount: number;
 
   accountsCount: number;
 

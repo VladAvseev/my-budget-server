@@ -2,11 +2,28 @@ import { operationsService } from './service.js';
 import type { NextFunction, Request, Response } from 'express';
 
 export class OperationsController {
-
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const operations = await operationsService.list(req.user!.id, { ...req.query });
       res.status(200).json({ data: operations });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async listMonths(req: Request, res: Response, next: NextFunction) {
+    try {
+      const months = await operationsService.listMonths(req.user!.id);
+      res.status(200).json({ data: months });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getCapitalDynamics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const months = await operationsService.getCapitalDynamics(req.user!.id);
+      res.status(200).json({ data: months });
     } catch (error) {
       next(error);
     }

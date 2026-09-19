@@ -9,6 +9,10 @@ operationsRouter.use(authenticate, requireConsent);
 
 operationsRouter.get('/', operationsController.list);
 
+operationsRouter.get('/months', operationsController.listMonths);
+
+operationsRouter.get('/capital-dynamics', operationsController.getCapitalDynamics);
+
 operationsRouter.get('/category-summary', operationsController.getCategorySummary);
 
 operationsRouter.post('/', operationsController.create);

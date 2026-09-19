@@ -33,7 +33,6 @@ export interface UpdateProfileInput {
 
 export interface OnboardingState {
   categories: number;
-  reports: number;
   operations: number;
 }
 
@@ -43,7 +42,6 @@ export interface UserSummary {
 }
 
 export interface HomeBootstrap {
-
   profile: {
     currency: string | null;
     onboarded: boolean;
@@ -51,17 +49,9 @@ export interface HomeBootstrap {
 
   onboarding: OnboardingState;
 
-  lastReport: BootstrapLastReport | null;
+  currentMonth: UserSummary;
+
+  trailingYear: UserSummary;
 
   globalTotals: UserSummary;
-}
-
-export interface BootstrapLastReport {
-  id: string;
-  name: string;
-
-  period_start: string | null;
-  period_end: string | null;
-
-  summary: UserSummary;
 }

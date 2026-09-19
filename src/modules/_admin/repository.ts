@@ -30,11 +30,6 @@ export class AdminRepository {
           'users', (
             SELECT jsonb_build_object(
               'total', count(*),
-              'withoutReports', count(*) FILTER (
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM public.reports r WHERE r.user_id = u.id
-                )
-              ),
               'onboarded', count(*) FILTER (WHERE u.onboarded)
             )
             FROM public.users u
@@ -64,18 +59,12 @@ export class AdminRepository {
             FROM public.users u
             WHERE ${NOT_ANONYMIZED_SQL}
           ),
-         'reports', (
-           SELECT jsonb_build_object(
-             'total', count(*)
-           )
-           FROM public.reports r
-         ),
          'operations', (
            SELECT jsonb_build_object(
              'total', count(*),
              'income', count(*) FILTER (WHERE o.type = 'income'),
              'expense', count(*) FILTER (WHERE o.type = 'expense'),
-             'savings', count(*) FILTER (WHERE o.type = 'transfer')
+             'transfer', count(*) FILTER (WHERE o.type = 'transfer')
            )
            FROM public.operations o
          )
@@ -203,26 +192,22 @@ export class AdminRepository {
         'login', u.login,
         'last_active_at', u.last_active_at,
         'onboarded', u.onboarded,
-        'reportsCount', coalesce(r.cnt, 0),
         'operationsCount', coalesce(o.cnt, 0),
         'categoriesCount', coalesce(c.cnt, 0),
         'incomeCount', coalesce(o.income_cnt, 0),
         'expenseCount', coalesce(o.expense_cnt, 0),
-        'savingsCount', coalesce(o.savings_cnt, 0),
+        'transferCount', coalesce(o.transfer_cnt, 0),
         'accountsCount', coalesce(acc.cnt, 0),
         'goalsCount', coalesce(g.cnt, 0)
       )), '[]'::jsonb) AS data
       FROM public.users u
-      LEFT JOIN (
-        SELECT user_id, count(*) AS cnt FROM public.reports GROUP BY user_id
-      ) r ON r.user_id = u.id
       LEFT JOIN (
         SELECT
           user_id,
           count(*) AS cnt,
           count(*) FILTER (WHERE type = 'income') AS income_cnt,
           count(*) FILTER (WHERE type = 'expense') AS expense_cnt,
-          count(*) FILTER (WHERE type IN ('savings', 'savings_out')) AS savings_cnt
+          count(*) FILTER (WHERE type = 'transfer') AS transfer_cnt
         FROM public.operations
         GROUP BY user_id
       ) o ON o.user_id = u.id

@@ -6,16 +6,18 @@ import {
 } from '@/shared/accountRules.js';
 import { AppError } from '@/shared/appError.js';
 import {
-  isUuid,
   optionalDateOrNull,
   optionalStringOrNull,
+  parseMonthsParam,
   requireAmount,
+  requireDate,
   requireEnum,
   requireUuid,
 } from '@/shared/validate.js';
 import { operationsRepository, toOperationDto } from './repository.js';
 import { OPERATION_TYPES } from './types.js';
 import type {
+  CapitalMonthDto,
   CategorySummaryRowDto,
   OperationDto,
   OperationType,
@@ -24,60 +26,57 @@ import type {
   UpdateOperationInput,
 } from './types.js';
 
-export class OperationsService {
+const MONTHS_MESSAGE = 'Некорректный список месяцев (ожидается YYYY-MM через запятую)';
 
+export class OperationsService {
   async list(
     userId: string,
     query: Record<string, unknown>,
   ): Promise<OperationDto[] | OverviewOperationDto[]> {
+    const months = parseMonthsParam(query.months, MONTHS_MESSAGE);
 
-    let types: OperationType[] | undefined;
-    if (query.type !== undefined) {
-      if (typeof query.type !== 'string' || query.type === '') {
-        throw new AppError('Некорректный тип операции', 400);
-      }
-      types = query.type
-        .split(',')
-        .map((part) =>
-          requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
-        );
+    if (months.length === 0) {
+      return [];
     }
-    if (typeof query.reportIds === 'string' && query.reportIds !== '') {
-      return this.listByReports(query.reportIds, userId);
-    }
-    if (!types) throw new AppError('Некорректный тип операции', 400);
-    const reportId = requireUuid(query.reportId, 'Некорректный идентификатор отчёта');
 
-    await this.assertReport(reportId, userId);
-    const rows = await operationsRepository.listByReport(reportId, types);
+    if (query.type === undefined) {
+      return operationsRepository.listOverviewByMonths(months, userId);
+    }
+
+    if (typeof query.type !== 'string' || query.type === '') {
+      throw new AppError('Некорректный тип операции', 400);
+    }
+    const types: OperationType[] = query.type
+      .split(',')
+      .map((part) =>
+        requireEnum<OperationType>(part.trim(), OPERATION_TYPES, 'Некорректный тип операции'),
+      );
+
+    const rows = await operationsRepository.listByMonths(months, userId, types);
     return rows.map(toOperationDto);
   }
 
-  private async listByReports(raw: string, userId: string): Promise<OverviewOperationDto[]> {
-    const reportIds = raw
-      .split(',')
-      .map((id) => id.trim())
-      .filter(isUuid);
-    return operationsRepository.listByReports(reportIds, userId);
+  async listMonths(userId: string): Promise<string[]> {
+    return operationsRepository.listMonths(userId);
+  }
+
+  async getCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
+    return operationsRepository.listCapitalDynamics(userId);
   }
 
   async getCategorySummary(
     userId: string,
     query: Record<string, unknown>,
   ): Promise<CategorySummaryRowDto[]> {
-    if (typeof query.reportIds !== 'string' || query.reportIds === '') {
+    const months = parseMonthsParam(query.months, MONTHS_MESSAGE);
+    if (months.length === 0) {
       return [];
     }
-    const reportIds = query.reportIds
-      .split(',')
-      .map((id) => id.trim())
-      .filter(isUuid);
-    return operationsRepository.categorySummary(reportIds, userId);
+    return operationsRepository.categorySummary(months, userId);
   }
 
   async create(userId: string, body: Record<string, unknown>): Promise<OperationDto> {
     return withAccountTransaction(userId, async (client) => {
-      const reportId = requireUuid(body.reportId, 'Некорректный идентификатор отчёта');
       const type = requireEnum<OperationType>(
         body.type,
         OPERATION_TYPES,
@@ -95,14 +94,13 @@ export class OperationsService {
       });
       const amount = requireAmount(body.amount, 'Сумма не может быть отрицательной', false);
       const description = optionalStringOrNull(body.description, 'Некорректное описание');
-      const date = optionalDateOrNull(body.date, 'Дата должна быть в формате YYYY-MM-DD');
+      const date = requireDate(body.date, 'Дата должна быть в формате YYYY-MM-DD');
 
       const categoryId =
         type === 'transfer' ? null : await this.resolveCategoryId(body.categoryId, userId, client);
 
-      await this.assertReport(reportId, userId, client);
       const row = await operationsRepository.create(
-        { reportId, type, amount, categoryId, description, date, ...accounts },
+        { type, amount, categoryId, description, date, ...accounts },
         userId,
         client,
       );
@@ -240,16 +238,9 @@ export class OperationsService {
     }
     const categoryId = requireUuid(value, 'Некорректный идентификатор категории');
     if (!(await operationsRepository.isCategoryAllowed(client, userId, categoryId))) {
-
       throw new AppError('Категория не найдена', 400);
     }
     return categoryId;
-  }
-
-  private async assertReport(reportId: string, userId: string, client?: PoolClient): Promise<void> {
-    if (!(await operationsRepository.isReportOwned(reportId, userId, client))) {
-      throw new AppError('Отчёт не найден', 404);
-    }
   }
 }
 

@@ -4,6 +4,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value);
 }
@@ -55,6 +57,34 @@ export function optionalDateOrNull(value: unknown, message: string): string | nu
     throw new AppError(message, 400);
   }
   return value;
+}
+
+export function requireDate(value: unknown, message: string): string {
+  if (typeof value !== 'string' || !DATE_RE.test(value)) {
+    throw new AppError(message, 400);
+  }
+  return value;
+}
+
+export function parseMonthsParam(value: unknown, message: string): string[] {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return [];
+  }
+  const months = [...new Set(
+    value
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== ''),
+  )];
+  if (months.length > 120) {
+    throw new AppError(message, 400);
+  }
+  for (const month of months) {
+    if (!MONTH_RE.test(month)) {
+      throw new AppError(message, 400);
+    }
+  }
+  return months.sort();
 }
 
 export function requireEnum<T extends string>(
