@@ -9,6 +9,8 @@ import type {
   UserSummary,
 } from './types.js';
 
+export type HomeBootstrapBase = Omit<HomeBootstrap, 'goalsSummary'>;
+
 export function isAnonymizedLogin(login: string): boolean {
   return /^deleted-[0-9a-f-]{36}$/.test(login);
 }
@@ -142,7 +144,7 @@ export class UsersRepository {
     };
   }
 
-  async getHomeBootstrap(userId: string): Promise<HomeBootstrap | null> {
+  async getHomeBootstrap(userId: string): Promise<HomeBootstrapBase | null> {
     const { rows } = await pool.query<HomeBootstrapRow>(
       `WITH bounds AS (
          SELECT

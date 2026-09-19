@@ -1,8 +1,15 @@
 import { usersRepository, toPublicUser, isAnonymizedLogin } from './repository.js';
+import { accountsRepository, toAccountDto } from '@/modules/_accounts/repository.js';
+import { goalsRepository, toGoalDto } from '@/modules/_goals/repository.js';
+import { operationsRepository, toOperationDto } from '@/modules/_operations/repository.js';
+import type { OperationType } from '@/modules/_operations/types.js';
+import { pool } from '@/db/pool.js';
 import { consentService } from '@/modules/_consent/service.js';
 import { AppError } from '@/shared/appError.js';
 import type { ConsentRequestMeta } from '@/modules/_consent/types.js';
+import { buildBootstrapGoalsSummary, emptyGoalsSummary } from './goalsSummary.js';
 import type {
+  GoalsSummary,
   HomeBootstrap,
   OnboardingState,
   PublicUser,
@@ -63,7 +70,34 @@ export class UsersService {
     if (!bootstrap) {
       throw new AppError('Пользователь не найден', 404);
     }
-    return bootstrap;
+    return { ...bootstrap, goalsSummary: await this.getGoalsSummary(userId) };
+  }
+
+  private async getGoalsSummary(userId: string): Promise<GoalsSummary> {
+    const [goalRows, accountRows, user] = await Promise.all([
+      goalsRepository.list(userId),
+      accountsRepository.list(userId),
+      usersRepository.getById(userId),
+    ]);
+    if (!user || goalRows.length === 0) {
+      return emptyGoalsSummary();
+    }
+    const [{ rows: monthRows }, dynamics] = await Promise.all([
+      pool.query<{ month: string }>(`SELECT to_char(CURRENT_DATE, 'YYYY-MM') AS month`),
+      operationsRepository.listCapitalDynamics(userId),
+    ]);
+    const month = monthRows[0]?.month;
+    const types: OperationType[] = ['income', 'expense', 'transfer'];
+    const operationRows = month
+      ? await operationsRepository.listByMonths([month], userId, types)
+      : [];
+    return buildBootstrapGoalsSummary({
+      goals: goalRows.map(toGoalDto),
+      accounts: accountRows.map(toAccountDto),
+      operations: operationRows.map(toOperationDto),
+      dynamics,
+      firstActivityDate: user.created_at,
+    });
   }
 
   async deleteMe(userId: string, meta: ConsentRequestMeta): Promise<void> {

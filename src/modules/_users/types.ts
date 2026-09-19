@@ -41,6 +41,19 @@ export interface UserSummary {
   expense: number;
 }
 
+export interface GoalsSummary {
+  hasGoals: boolean;
+  totalSaved: number;
+  totalTarget: number;
+  percent: number;
+  monthlyPlan: number;
+  currentPeriodSaved: number;
+  growthAvg: number | null;
+  growthMonths: number;
+  forecastMonths: number | null;
+  forecastDate: string | null;
+}
+
 export interface HomeBootstrap {
   profile: {
     currency: string | null;
@@ -54,4 +67,6 @@ export interface HomeBootstrap {
   trailingYear: UserSummary;
 
   globalTotals: UserSummary;
+
+  goalsSummary: GoalsSummary;
 }
