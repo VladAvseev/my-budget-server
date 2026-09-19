@@ -1,4 +1,5 @@
 import { pool } from '@/db/pool.js';
+import { logError } from '@/shared/logger.js';
 import type { NextFunction, Request, Response } from 'express';
 
 const RETENTION_DAYS = Number(process.env.LOG_RETENTION_DAYS) || 30;
@@ -24,6 +25,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function truncateError(message: string): string {
+  return message.length > ERROR_LIMIT ? `${message.slice(0, ERROR_LIMIT)}…` : message;
+}
+
 function extractErrorMessage(body: unknown): string | null {
   const payload = typeof body === 'string' ? safeParseJson(body) : body;
   if (!isPlainObject(payload) || !isPlainObject(payload.error)) {
@@ -33,7 +38,17 @@ function extractErrorMessage(body: unknown): string | null {
   if (typeof message !== 'string' || !message) {
     return null;
   }
-  return message.length > ERROR_LIMIT ? `${message.slice(0, ERROR_LIMIT)}…` : message;
+  return truncateError(message);
+}
+
+// Настоящее сообщение внутренней ошибки кладёт errorMiddleware в res.locals.serverError,
+// чтобы в request_logs попадала реальная причина, а клиенту уходил общий текст.
+function extractServerError(res: Response): string | null {
+  const serverError: unknown = res.locals.serverError;
+  if (typeof serverError !== 'string' || !serverError) {
+    return null;
+  }
+  return truncateError(serverError);
 }
 
 function safeParseJson(text: string): unknown {
@@ -53,7 +68,7 @@ function maybeCleanupOldLogs(retentionDays: number): void {
       String(retentionDays),
     ])
     .catch((err: unknown) => {
-      process.stderr.write(`Очистка request_logs не удалась: ${(err as Error).message}\n`);
+      logError(`Очистка request_logs не удалась: ${(err as Error).message}`);
     });
 }
 
@@ -77,7 +92,12 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
   res.on('finish', () => {
     const durationMs = Math.round(performance.now() - startedAt);
     const status = res.statusCode;
-    const error = status >= 400 ? extractErrorMessage(responseBody) : null;
+    const error =
+      status >= 500
+        ? (extractServerError(res) ?? extractErrorMessage(responseBody))
+        : status >= 400
+          ? extractErrorMessage(responseBody)
+          : null;
 
     pool
       .query(
@@ -99,7 +119,7 @@ export function requestLoggingMiddleware(req: Request, res: Response, next: Next
         ],
       )
       .catch((err: unknown) => {
-        process.stderr.write(`Запись в request_logs не удалась: ${(err as Error).message}\n`);
+        logError(`Запись в request_logs не удалась: ${(err as Error).message}`);
       });
 
     maybeCleanupOldLogs(RETENTION_DAYS);

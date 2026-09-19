@@ -1,5 +1,6 @@
 import { AppError } from '@/shared/appError.js';
 import { sha256Hex } from '@/shared/hash.js';
+import { logWarn } from '@/shared/logger.js';
 import { requireNonEmptyString } from '@/shared/validate.js';
 import { legalRepository } from './repository.js';
 import type { LegalDocumentDto, LegalDocumentRow } from './types.js';
@@ -38,8 +39,7 @@ export class LegalService {
 
   private checkIntegrity(dto: LegalDocumentDto): LegalDocumentDto {
     if (sha256Hex(dto.content) !== dto.contentHash) {
-      // eslint-disable-next-line no-console -- инцидент целостности легального документа
-      console.warn(
+      logWarn(
         `ИНЦИДЕНТ ЦЕЛОСТНОСТИ: документ ${dto.documentType} ${dto.version}: ` +
           `content_hash не совпадает с содержимым content (правка в обход публикации)`,
       );

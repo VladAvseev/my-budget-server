@@ -2,6 +2,7 @@ import { GATING_DOCUMENT_TYPE } from '@/modules/_consent/types.js';
 import { consentRepository } from '@/modules/_consent/repository.js';
 import { toPublicUser } from '@/modules/_users/repository.js';
 import { AppError } from '@/shared/appError.js';
+import { logWarn } from '@/shared/logger.js';
 import { withTransaction } from '@/shared/transaction.js';
 import { compare, hash, hashSync } from 'bcryptjs';
 import { authRepository } from './repository.js';
@@ -162,8 +163,7 @@ export class AuthService {
       const stale = await authRepository.findSessionByHash(tokenHash);
       if (stale && stale.revoked_at !== null) {
         await authRepository.revokeAllRefreshTokens(stale.user_id);
-        // eslint-disable-next-line no-console -- сигнал компрометации, должен попадать в stderr/логи контейнера
-        console.warn(
+        logWarn(
           `Refresh-токен использован повторно (возможна кража): все сессии отозваны. ` +
             `user=${stale.user_id}`,
         );

@@ -1,4 +1,9 @@
 import { AppError } from '@/shared/appError.js';
+import {
+  getRealErrorMessage,
+  INTERNAL_SERVER_ERROR_MESSAGE,
+  logServerError,
+} from '@/shared/logger.js';
 import type { NextFunction, Request, Response } from 'express';
 
 interface ParserError {
@@ -8,6 +13,14 @@ interface ParserError {
 
 export function errorMiddleware(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
+    if (err.status >= 500) {
+      // Внутренняя ошибка: клиенту — общий текст, настоящее сообщение — в логи
+      // (stderr + request_logs.error через res.locals).
+      logServerError(req, err);
+      res.locals.serverError = getRealErrorMessage(err);
+      res.status(500).json({ error: { message: INTERNAL_SERVER_ERROR_MESSAGE, status: 500 } });
+      return;
+    }
     res.status(err.status).json({
       error: {
         message: err.message,
@@ -40,7 +53,7 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
     return;
   }
 
-  // eslint-disable-next-line no-console -- осознанное логирование неожиданных 5xx
-  console.error(`${req.method} ${req.originalUrl} -> 500:`, err);
-  res.status(500).json({ error: { message: 'Внутренняя ошибка сервера', status: 500 } });
+  logServerError(req, err);
+  res.locals.serverError = getRealErrorMessage(err);
+  res.status(500).json({ error: { message: INTERNAL_SERVER_ERROR_MESSAGE, status: 500 } });
 }

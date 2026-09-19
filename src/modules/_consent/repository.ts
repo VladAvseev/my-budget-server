@@ -8,9 +8,8 @@ const PGP_OPTIONS = 'cipher-algo=aes256';
 function encKey(): string {
   const key = process.env.CONSENT_ENC_KEY;
   if (!key) {
-    // eslint-disable-next-line no-console -- конфигурационный сбой должен быть виден в логах контейнера
-    console.error('CONSENT_ENC_KEY не задан — consent_log недоступен');
-    throw new AppError('Внутренняя ошибка сервера', 500);
+    // Настоящая причина уходит в логи через errorMiddleware, клиенту — общий текст 500.
+    throw new AppError('CONSENT_ENC_KEY не задан — consent_log недоступен', 500);
   }
   return key;
 }

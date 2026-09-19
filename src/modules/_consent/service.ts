@@ -1,6 +1,7 @@
 import { usersRepository } from '@/modules/_users/repository.js';
 import { lockActiveUser } from '@/shared/accountRules.js';
 import { AppError } from '@/shared/appError.js';
+import { logWarn } from '@/shared/logger.js';
 import { withTransaction } from '@/shared/transaction.js';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
@@ -141,8 +142,7 @@ export class ConsentService {
     });
 
     if (!published) {
-      // eslint-disable-next-line no-console -- факт удаления без записи в журнал согласий должен быть виден оператору
-      console.warn(
+      logWarn(
         `Обезличивание user=${userId} выполнено до публикации privacy_policy — ` +
           `события revoked/erased не записаны (нет версии документа для FK)`,
       );
