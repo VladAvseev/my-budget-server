@@ -22,31 +22,6 @@ export interface ReportDto {
   updated_at: string;
 }
 
-export interface CategoryLimitRow {
-  id: string;
-  report_id: string;
-  category_id: string;
-  user_id: string;
-  amount: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface CategoryLimitDto {
-  id: string;
-  report_id: string;
-  category_id: string;
-  user_id: string;
-  amount: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CategoryLimitItem {
-  categoryId: string;
-  amount: number;
-}
-
 export interface ReportSummary {
   income: number;
   expense: number;

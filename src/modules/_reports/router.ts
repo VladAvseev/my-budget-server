@@ -20,7 +20,3 @@ reportsRouter.patch('/:id', reportsController.update);
 reportsRouter.delete('/:id', reportsController.remove);
 
 reportsRouter.get('/:id/summary', reportsController.getSummary);
-
-reportsRouter.get('/:id/category-limits', reportsController.getCategoryLimits);
-
-reportsRouter.put('/:id/category-limits', reportsController.setCategoryLimits);

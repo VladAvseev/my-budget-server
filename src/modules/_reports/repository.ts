@@ -1,13 +1,9 @@
 import type { PoolClient } from 'pg';
 import { withAccountTransaction } from '@/shared/accountRules.js';
 import { pool } from '@/db/pool.js';
-import { toIsoString, toNumber } from '@/shared/serialize.js';
-import { withTransaction } from '@/shared/transaction.js';
+import { toIsoString } from '@/shared/serialize.js';
 import type {
   CapitalMonthDto,
-  CategoryLimitDto,
-  CategoryLimitItem,
-  CategoryLimitRow,
   CreateReportInput,
   ReportDto,
   ReportRow,
@@ -22,18 +18,6 @@ export function toReportDto(row: ReportRow): ReportDto {
     code: row.code,
     period_start: row.period_start,
     period_end: row.period_end,
-    created_at: toIsoString(row.created_at),
-    updated_at: toIsoString(row.updated_at),
-  };
-}
-
-export function toCategoryLimitDto(row: CategoryLimitRow): CategoryLimitDto {
-  return {
-    id: row.id,
-    report_id: row.report_id,
-    category_id: row.category_id,
-    user_id: row.user_id,
-    amount: toNumber(row.amount),
     created_at: toIsoString(row.created_at),
     updated_at: toIsoString(row.updated_at),
   };
@@ -171,55 +155,6 @@ export class ReportsRepository {
       [userId],
     );
     return rows.map((row) => ({ month: row.month, delta: Number(row.delta) }));
-  }
-
-  async listCategoryLimits(reportId: string): Promise<CategoryLimitRow[]> {
-    const { rows } = await pool.query<CategoryLimitRow>(
-      `SELECT * FROM public.category_limits
-       WHERE report_id = $1
-       ORDER BY created_at`,
-      [reportId],
-    );
-    return rows;
-  }
-
-  async countOwnedCategories(userId: string, categoryIds: string[]): Promise<number> {
-    const { rows } = await pool.query<{ cnt: string }>(
-      'SELECT count(*)::int AS cnt FROM public.categories WHERE user_id = $1 AND id = ANY($2::uuid[])',
-      [userId, categoryIds],
-    );
-    return Number(rows[0].cnt);
-  }
-
-  async replaceCategoryLimits(
-    reportId: string,
-    userId: string,
-    limits: CategoryLimitItem[],
-  ): Promise<CategoryLimitRow[]> {
-    return withTransaction(async (client) => {
-      await client.query('DELETE FROM public.category_limits WHERE report_id = $1', [reportId]);
-
-      if (limits.length > 0) {
-        const values: unknown[] = [reportId, userId];
-        const tuples = limits.map((item) => {
-          values.push(item.categoryId, item.amount);
-          return `($1, $${values.length - 1}, $2, $${values.length})`;
-        });
-        await client.query(
-          `INSERT INTO public.category_limits (report_id, category_id, user_id, amount)
-           VALUES ${tuples.join(', ')}`,
-          values,
-        );
-      }
-
-      const { rows } = await client.query<CategoryLimitRow>(
-        `SELECT * FROM public.category_limits
-         WHERE report_id = $1
-         ORDER BY created_at`,
-        [reportId],
-      );
-      return rows;
-    });
   }
 }
 

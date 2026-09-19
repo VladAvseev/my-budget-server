@@ -65,28 +65,6 @@ export class ReportsController {
       next(error);
     }
   }
-
-  async getCategoryLimits(req: Request, res: Response, next: NextFunction) {
-    try {
-      const limits = await reportsService.getCategoryLimits(req.user!.id, req.params.id);
-      res.status(200).json({ data: limits });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async setCategoryLimits(req: Request, res: Response, next: NextFunction) {
-    try {
-      const limits = await reportsService.setCategoryLimits(
-        req.user!.id,
-        req.params.id,
-        req.body ?? {},
-      );
-      res.status(200).json({ data: limits });
-    } catch (error) {
-      next(error);
-    }
-  }
 }
 
 export const reportsController = new ReportsController();

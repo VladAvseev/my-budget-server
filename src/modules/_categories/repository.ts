@@ -1,6 +1,6 @@
 import { withAccountTransaction } from '@/shared/accountRules.js';
 import { pool } from '@/db/pool.js';
-import { toIsoString } from '@/shared/serialize.js';
+import { toIsoString, toNumberOrNull } from '@/shared/serialize.js';
 import type { CategoryDto, CategoryRow, CategoryType, UpdateCategoryInput } from './types.js';
 
 export function toCategoryDto(row: CategoryRow): CategoryDto {
@@ -10,6 +10,8 @@ export function toCategoryDto(row: CategoryRow): CategoryDto {
     type: row.type,
     name: row.name,
     color: row.color,
+    limit_amount: toNumberOrNull(row.limit_amount),
+    show_daily_limit: row.show_daily_limit,
     created_at: toIsoString(row.created_at),
     updated_at: toIsoString(row.updated_at),
   };
@@ -39,12 +41,14 @@ export class CategoriesRepository {
     type: CategoryType,
     name: string,
     color: string | null,
+    limitAmount: number | null,
+    showDailyLimit: boolean,
   ): Promise<CategoryRow> {
     const { rows } = await pool.query<CategoryRow>(
-      `INSERT INTO public.categories (user_id, type, name, color)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO public.categories (user_id, type, name, color, limit_amount, show_daily_limit)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [userId, type, name, color],
+      [userId, type, name, color, limitAmount, showDailyLimit],
     );
     return rows[0];
   }
@@ -65,6 +69,14 @@ export class CategoriesRepository {
     if (input.color !== undefined) {
       values.push(input.color);
       sets.push(`color = $${values.length}`);
+    }
+    if (input.limitAmount !== undefined) {
+      values.push(input.limitAmount);
+      sets.push(`limit_amount = $${values.length}`);
+    }
+    if (input.showDailyLimit !== undefined) {
+      values.push(input.showDailyLimit);
+      sets.push(`show_daily_limit = $${values.length}`);
     }
 
     if (sets.length === 0) {

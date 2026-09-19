@@ -1,18 +1,11 @@
 import { AppError } from '@/shared/appError.js';
 import {
   optionalDateOrNull,
-  requireAmount,
   requireNonEmptyString,
   requireUuid,
 } from '@/shared/validate.js';
-import { reportsRepository, toCategoryLimitDto, toReportDto } from './repository.js';
-import type {
-  CapitalMonthDto,
-  CategoryLimitDto,
-  CategoryLimitItem,
-  ReportDto,
-  ReportSummary,
-} from './types.js';
+import { reportsRepository, toReportDto } from './repository.js';
+import type { CapitalMonthDto, ReportDto, ReportSummary } from './types.js';
 
 const NOT_FOUND = 'Отчёт не найден';
 
@@ -115,53 +108,6 @@ export class ReportsService {
 
   async getCapitalDynamics(userId: string): Promise<CapitalMonthDto[]> {
     return reportsRepository.listCapitalDynamics(userId);
-  }
-
-  async getCategoryLimits(userId: string, id: unknown): Promise<CategoryLimitDto[]> {
-    const reportId = requireUuid(id);
-    await this.assertReport(reportId, userId);
-    const rows = await reportsRepository.listCategoryLimits(reportId);
-    return rows.map(toCategoryLimitDto);
-  }
-
-  async setCategoryLimits(
-    userId: string,
-    id: unknown,
-    body: Record<string, unknown>,
-  ): Promise<CategoryLimitDto[]> {
-    const reportId = requireUuid(id);
-    await this.assertReport(reportId, userId);
-
-    if (!Array.isArray(body.limits)) {
-      throw new AppError('Ожидается массив limits', 400);
-    }
-
-    const limits: CategoryLimitItem[] = body.limits.map((rawItem) => {
-      const item = (rawItem ?? {}) as Record<string, unknown>;
-      return {
-        categoryId: requireUuid(item.categoryId, 'Некорректный идентификатор категории'),
-        amount: requireAmount(item.amount, 'Лимит должен быть положительным числом'),
-      };
-    });
-
-    const uniqueIds = [...new Set(limits.map((item) => item.categoryId))];
-    if (uniqueIds.length > 0) {
-      const owned = await reportsRepository.countOwnedCategories(userId, uniqueIds);
-      if (owned !== uniqueIds.length) {
-        throw new AppError('Категория не найдена', 400);
-      }
-    }
-
-    try {
-      const rows = await reportsRepository.replaceCategoryLimits(reportId, userId, limits);
-      return rows.map(toCategoryLimitDto);
-    } catch (err) {
-
-      if ((err as { code?: string }).code === '23505') {
-        throw new AppError('Одна категория не может иметь два лимита', 400);
-      }
-      throw err;
-    }
   }
 
   private async assertReport(reportId: string, userId: string): Promise<void> {

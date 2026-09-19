@@ -4,6 +4,8 @@ export interface CategoryRow {
   type: CategoryType;
   name: string;
   color: string | null;
+  limit_amount: string | null;
+  show_daily_limit: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -18,6 +20,8 @@ export interface CategoryDto {
   type: CategoryType;
   name: string;
   color: string | null;
+  limit_amount: number | null;
+  show_daily_limit: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -26,9 +30,13 @@ export interface CreateCategoryInput {
   type: CategoryType;
   name: string;
   color: string | null;
+  limitAmount: number | null;
+  showDailyLimit: boolean;
 }
 
 export interface UpdateCategoryInput {
   name?: string;
   color?: string | null;
+  limitAmount?: number | null;
+  showDailyLimit?: boolean;
 }

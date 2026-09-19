@@ -21,16 +21,21 @@ CREATE TABLE IF NOT EXISTS public.users (
     CONSTRAINT users_role_check CHECK (role = ANY (ARRAY['user'::text, 'admin'::text]))
 );
 
--- Категории: типы income/expense.
+-- Категории: типы income/expense. Лимит один на категорию (бюджет для
+-- расходов, цель для доходов), действует в каждом периоде; дневной остаток
+-- показывается только при show_daily_limit.
 CREATE TABLE IF NOT EXISTS public.categories (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     type text NOT NULL,
     name text NOT NULL,
     color text,
+    limit_amount numeric,
+    show_daily_limit boolean DEFAULT false NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     updated_at timestamptz DEFAULT now() NOT NULL,
-    CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text]))
+    CONSTRAINT categories_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text])),
+    CONSTRAINT categories_limit_amount_check CHECK (limit_amount IS NULL OR limit_amount > 0)
 );
 
 -- Аккаунты пользователя: основной счёт, накопления и отдельные кошельки.
@@ -91,18 +96,6 @@ CREATE TABLE IF NOT EXISTS public.operations (
     from_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
     to_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
     CONSTRAINT operations_type_check CHECK (type = ANY (ARRAY['income'::text, 'expense'::text, 'transfer'::text]))
-);
-
--- Лимиты расходов по категориям для отчётов (не более одного на пару отчёт+категория).
-CREATE TABLE IF NOT EXISTS public.category_limits (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    report_id uuid NOT NULL REFERENCES public.reports(id) ON DELETE CASCADE,
-    category_id uuid NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE,
-    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    amount numeric NOT NULL,
-    created_at timestamptz DEFAULT now() NOT NULL,
-    updated_at timestamptz DEFAULT now() NOT NULL,
-    CONSTRAINT category_limits_report_id_category_id_key UNIQUE (report_id, category_id)
 );
 
 -- Активные сессии (refresh-токены, одноразовые с ротацией).
@@ -167,7 +160,6 @@ CREATE TABLE IF NOT EXISTS public.consent_log (
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_one_primary_key ON public.accounts USING btree (user_id) WHERE is_primary;
 CREATE INDEX IF NOT EXISTS accounts_user_id_idx ON public.accounts USING btree (user_id);
 CREATE INDEX IF NOT EXISTS categories_user_id_type_idx ON public.categories USING btree (user_id, type);
-CREATE INDEX IF NOT EXISTS category_limits_category_id_idx ON public.category_limits USING btree (category_id);
 CREATE INDEX IF NOT EXISTS goals_user_id_idx ON public.goals USING btree (user_id);
 CREATE INDEX IF NOT EXISTS idx_consent_log_user ON public.consent_log USING btree (user_id, document_type, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS legal_documents_current_key ON public.legal_documents USING btree (document_type) WHERE is_current;
@@ -323,9 +315,6 @@ CREATE TRIGGER trg_accounts_updated_at BEFORE UPDATE ON public.accounts FOR EACH
 
 DROP TRIGGER IF EXISTS trg_categories_updated_at ON public.categories;
 CREATE TRIGGER trg_categories_updated_at BEFORE UPDATE ON public.categories FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_category_limits_updated_at ON public.category_limits;
-CREATE TRIGGER trg_category_limits_updated_at BEFORE UPDATE ON public.category_limits FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_operations_updated_at ON public.operations;
 CREATE TRIGGER trg_operations_updated_at BEFORE UPDATE ON public.operations FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
