@@ -67,23 +67,10 @@ CREATE TABLE IF NOT EXISTS public.goals (
     updated_at timestamptz DEFAULT now() NOT NULL
 );
 
--- Пользовательские отчёты — календарные периоды (name, code 'YYYY-MM').
-CREATE TABLE IF NOT EXISTS public.reports (
-    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    name text NOT NULL,
-    code text DEFAULT ''::text NOT NULL,
-    period_start date,
-    period_end date,
-    created_at timestamptz DEFAULT now() NOT NULL,
-    updated_at timestamptz DEFAULT now() NOT NULL
-);
-
 -- Операции: 'income'/'expense' (account_id + category_id) и 'transfer'
 -- (from_account_id/to_account_id, category_id NULL). Бизнес-дата — date.
 CREATE TABLE IF NOT EXISTS public.operations (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    report_id uuid NOT NULL REFERENCES public.reports(id) ON DELETE CASCADE,
     user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     type text NOT NULL,
     amount numeric NOT NULL,
@@ -166,13 +153,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS legal_documents_current_key ON public.legal_do
 CREATE INDEX IF NOT EXISTS operations_account_id_idx ON public.operations USING btree (account_id);
 CREATE INDEX IF NOT EXISTS operations_category_id_idx ON public.operations USING btree (category_id);
 CREATE INDEX IF NOT EXISTS operations_from_account_id_idx ON public.operations USING btree (from_account_id);
-CREATE INDEX IF NOT EXISTS operations_report_type_created_at_idx ON public.operations USING btree (report_id, type, created_at DESC);
 CREATE INDEX IF NOT EXISTS operations_to_account_id_idx ON public.operations USING btree (to_account_id);
 CREATE INDEX IF NOT EXISTS operations_user_id_idx ON public.operations USING btree (user_id);
 CREATE INDEX IF NOT EXISTS refresh_tokens_expires_at_idx ON public.refresh_tokens USING btree (expires_at);
 CREATE INDEX IF NOT EXISTS refresh_tokens_user_id_idx ON public.refresh_tokens USING btree (user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS reports_user_id_code_key ON public.reports USING btree (user_id, code) WHERE (code <> ''::text);
-CREATE INDEX IF NOT EXISTS reports_user_id_created_at_idx ON public.reports USING btree (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS request_logs_created_at_idx ON public.request_logs USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS request_logs_status_created_at_idx ON public.request_logs USING btree (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS request_logs_user_id_idx ON public.request_logs USING btree (user_id, created_at DESC);
@@ -321,9 +305,6 @@ CREATE TRIGGER trg_operations_updated_at BEFORE UPDATE ON public.operations FOR 
 
 DROP TRIGGER IF EXISTS trg_refresh_tokens_updated_at ON public.refresh_tokens;
 CREATE TRIGGER trg_refresh_tokens_updated_at BEFORE UPDATE ON public.refresh_tokens FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-DROP TRIGGER IF EXISTS trg_reports_updated_at ON public.reports;
-CREATE TRIGGER trg_reports_updated_at BEFORE UPDATE ON public.reports FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 DROP TRIGGER IF EXISTS trg_users_create_primary_account ON public.users;
 CREATE TRIGGER trg_users_create_primary_account AFTER INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION public.create_user_primary_account();
